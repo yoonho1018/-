@@ -37,7 +37,7 @@
   </div>
   <footer>동네기록 · 정보과학 프로젝트 <span>사이트 등록은 행정기관에 대한 공식 신고가 아닙니다.</span></footer>
   <dialog id="detail"><div id="detail-content"></div></dialog>
-  <dialog id="auth"><form id="auth-form"><div class="dialog-head"><h2>동네기록 로그인</h2><button type="button" class="icon" data-close="auth" aria-label="닫기"><i data-lucide="x"></i></button></div><p>내 제보와 해결 여부를 기록하세요.</p><label>이메일<input name="email" type="email" autocomplete="email" required placeholder="name@example.com"></label><label>비밀번호<input name="password" type="password" minlength="8" autocomplete="current-password" required placeholder="8자 이상"></label><p id="auth-message" role="status"></p><div class="actions"><button class="primary" type="submit">로그인</button><button type="button" id="signup" class="secondary">회원가입</button></div></form></dialog>
+  <dialog id="auth"><form id="auth-form"><div class="dialog-head"><h2 id="auth-title">동네기록 로그인</h2><button type="button" class="icon" data-close="auth" aria-label="닫기"><i data-lucide="x"></i></button></div><label>이메일<input name="email" type="email" autocomplete="email" required placeholder="name@example.com"></label><label>비밀번호<input name="password" type="password" minlength="1" autocomplete="current-password" required></label><label id="confirm-label" hidden>비밀번호 확인<input name="confirm" type="password" autocomplete="new-password" minlength="8"></label><p id="auth-message" role="status" aria-live="polite"></p><div class="actions"><button id="auth-submit" class="primary" type="submit">로그인</button><button type="button" id="signup" class="secondary">회원가입</button><button type="button" id="resend" class="quiet">인증 메일 재전송</button></div></form></dialog>
   <div id="toast" role="status" aria-live="polite"></div>
 <script>/**
  * @license lucide v0.468.0 - ISC
@@ -369,15 +369,23 @@ async function init() {
     try {
       if (!window.supabase) throw new Error('연결 라이브러리를 불러오지 못했습니다. 새로고침해 주세요.');
       client = window.supabase.createClient(window.APP_CONFIG.url, window.APP_CONFIG.key);
-      const [sessionResult, categoryResult, guideResult] = await Promise.all([
-        client.auth.getSession(), client.from('categories').select('*').order('sort_order'), client.from('main_guides').select('*')
+      client.auth.onAuthStateChange((_event, session) => {
+        const changed = user?.id !== session?.user?.id;
+        user = session?.user || null; updateAccount();
+        // Data requests must run outside Supabase's synchronous auth callback.
+        if (changed && pageName() === 'mine') setTimeout(() => render(), 0);
+      });
+      const sessionResult = await client.auth.getSession();
+      if (sessionResult.error) throw sessionResult.error;
+      user = sessionResult.data.session?.user || null; updateAccount();
+      const [categoryResult, guideResult] = await Promise.all([
+        client.from('categories').select('*').order('sort_order'), client.from('main_guides').select('*')
       ]);
-      for (const result of [sessionResult, categoryResult, guideResult]) if (result.error) throw result.error;
+      for (const result of [categoryResult, guideResult]) if (result.error) throw result.error;
       if (!categoryResult.data?.length || !guideResult.data?.length) throw new Error('분류 데이터가 없습니다. Supabase에서 schema.sql과 seed.sql을 실행해 주세요.');
       user = sessionResult.data.session?.user || null;
       categories = categoryResult.data; guides = guideResult.data; connected = true;
       $('#mode').textContent = '온라인 · 제보와 통계가 실시간 DB에 저장됩니다.'; $('#mode').className = 'mode live';
-      client.auth.onAuthStateChange((_event, session) => { user = session?.user || null; updateAccount(); });
     } catch (error) { $('#mode').textContent = `연결 실패 · ${error.message}`; $('#mode').className = 'mode error'; }
   }
   updateAccount(); await render();
@@ -506,23 +514,65 @@ async function renderStats(token) {
 $('#account').onclick = async () => {
   if (demo) { toast('체험 모드에서는 회원가입 없이 내 제보를 기록할 수 있어요.'); return; }
   if (!user) { $('#auth').showModal(); return; }
-  const result = await client.auth.signOut(); if (result.error) toast(result.error.message); else { user = null; updateAccount(); render(); }
+  try {
+    const result = await client.auth.signOut(); if (result.error) throw result.error;
+    user = null; updateAccount(); await render();
+  } catch (error) { toast(authError(error)); }
 };
+let signupMode = false;
+function authError(error) {
+  const messages = {
+    invalid_credentials: '이메일 또는 비밀번호를 확인해 주세요.',
+    email_not_confirmed: '이메일 인증이 필요합니다. 받은편지함과 스팸함을 확인해 주세요.',
+    user_already_exists: '이미 가입된 이메일입니다. 로그인해 주세요.',
+    weak_password: '비밀번호가 보안 조건에 맞지 않습니다. 더 긴 비밀번호를 사용해 주세요.',
+    over_email_send_rate_limit: '메일 요청이 많습니다. 잠시 후 다시 시도해 주세요.',
+    over_request_rate_limit: '요청이 많습니다. 잠시 후 다시 시도해 주세요.',
+    email_address_not_authorized: '현재 인증 메일 발송 대상이 제한되어 있습니다. 사이트 관리자에게 메일 발송 설정을 요청해 주세요.'
+  };
+  return messages[error.code] || (error instanceof TypeError ? '네트워크 연결을 확인한 뒤 다시 시도해 주세요.' : `요청 실패: ${error.message}`);
+}
+function setAuthMode(signup) {
+  signupMode = signup;
+  const form = $('#auth-form');
+  $('#auth-title').textContent = signup ? '동네기록 회원가입' : '동네기록 로그인';
+  $('#auth-submit').textContent = signup ? '회원가입' : '로그인';
+  $('#signup').textContent = signup ? '로그인으로 돌아가기' : '회원가입';
+  $('#confirm-label').hidden = !signup;
+  form.confirm.required = signup;
+  form.password.minLength = signup ? 8 : 1;
+  form.password.autocomplete = signup ? 'new-password' : 'current-password';
+  form.password.value = ''; form.confirm.value = '';
+  $('#auth-message').textContent = '';
+}
 async function authenticate(signup) {
   const form = $('#auth-form'); if (!form.reportValidity()) return;
+  if (signup && form.password.value !== form.confirm.value) { $('#auth-message').textContent = '비밀번호가 서로 다릅니다.'; return; }
   $('#auth-message').textContent = ''; const buttons = form.querySelectorAll('button'); buttons.forEach(b => b.disabled = true);
   try {
-    requireConnection();
+    if (!client) throw new Error('Supabase 연결 설정을 확인해 주세요.');
     const credentials = { email: form.email.value.trim(), password: form.password.value };
     const result = signup ? await client.auth.signUp({ ...credentials, options: { emailRedirectTo: location.origin } }) : await client.auth.signInWithPassword(credentials);
     if (result.error) throw result.error;
-    if (signup && !result.data.session) { $('#auth-message').textContent = '확인 메일을 보냈습니다. 메일의 인증 링크를 누른 뒤 로그인해 주세요.'; form.password.value = ''; return; }
+    if (signup && !result.data.session) { setAuthMode(false); $('#auth-message').textContent = '가입 요청을 처리했습니다. 인증 메일이 도착하면 링크를 눌러 주세요. 이미 가입했다면 로그인해 주세요.'; return; }
     user = result.data.user; form.reset(); $('#auth').close(); updateAccount(); toast('로그인했습니다.'); if (pageName() === 'mine') render();
-  } catch (error) { $('#auth-message').textContent = `로그인/가입 실패: ${error.message}`; }
+  } catch (error) { $('#auth-message').textContent = authError(error); }
   finally { buttons.forEach(b => b.disabled = false); }
 }
-$('#auth-form').onsubmit = event => { event.preventDefault(); authenticate(false); };
-$('#signup').onclick = () => authenticate(true);
+$('#auth-form').onsubmit = event => { event.preventDefault(); authenticate(signupMode); };
+$('#signup').onclick = () => setAuthMode(!signupMode);
+$('#resend').onclick = async () => {
+  const form = $('#auth-form'); if (!form.email.reportValidity()) return;
+  const buttons = form.querySelectorAll('button'); buttons.forEach(b => b.disabled = true);
+  try {
+    if (!client) throw new Error('Supabase 연결 설정을 확인해 주세요.');
+    const result = await client.auth.resend({ type: 'signup', email: form.email.value.trim(), options: { emailRedirectTo: location.origin } });
+    if (result.error) throw result.error;
+    $('#auth-message').textContent = '재전송을 요청했습니다. 인증 대기 중인 계정이라면 받은편지함과 스팸함을 확인해 주세요.';
+  } catch (error) { $('#auth-message').textContent = authError(error); }
+  finally { buttons.forEach(b => b.disabled = false); }
+};
+$('#auth').addEventListener('close', () => { $('#auth-form').password.value = ''; $('#auth-form').confirm.value = ''; });
 document.addEventListener('click', event => { const close = event.target.closest('[data-close]'); if (close) document.getElementById(close.dataset.close).close(); });
 window.addEventListener('hashchange', () => { page = 0; render(); });
 init();

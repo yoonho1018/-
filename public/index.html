@@ -26,7 +26,7 @@
   </div>
   <footer>동네기록 · 정보과학 프로젝트 <span>사이트 등록은 행정기관에 대한 공식 신고가 아닙니다.</span></footer>
   <dialog id="detail"><div id="detail-content"></div></dialog>
-  <dialog id="auth"><form id="auth-form"><div class="dialog-head"><h2>동네기록 로그인</h2><button type="button" class="icon" data-close="auth" aria-label="닫기"><i data-lucide="x"></i></button></div><p>내 제보와 해결 여부를 기록하세요.</p><label>이메일<input name="email" type="email" autocomplete="email" required placeholder="name@example.com"></label><label>비밀번호<input name="password" type="password" minlength="8" autocomplete="current-password" required placeholder="8자 이상"></label><p id="auth-message" role="status"></p><div class="actions"><button class="primary" type="submit">로그인</button><button type="button" id="signup" class="secondary">회원가입</button></div></form></dialog>
+  <dialog id="auth"><form id="auth-form"><div class="dialog-head"><h2 id="auth-title">동네기록 로그인</h2><button type="button" class="icon" data-close="auth" aria-label="닫기"><i data-lucide="x"></i></button></div><label>이메일<input name="email" type="email" autocomplete="email" required placeholder="name@example.com"></label><label>비밀번호<input name="password" type="password" minlength="1" autocomplete="current-password" required></label><label id="confirm-label" hidden>비밀번호 확인<input name="confirm" type="password" autocomplete="new-password" minlength="8"></label><p id="auth-message" role="status" aria-live="polite"></p><div class="actions"><button id="auth-submit" class="primary" type="submit">로그인</button><button type="button" id="signup" class="secondary">회원가입</button><button type="button" id="resend" class="quiet">인증 메일 재전송</button></div></form></dialog>
   <div id="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
