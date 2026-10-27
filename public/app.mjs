@@ -1,4 +1,6 @@
 import { DISTRICTS, GROUPS, GUIDES, CATEGORIES, classify, validateReport, aggregate } from './domain.mjs';
+import { validCoordinates, validateLocation, mapSummary } from './geography.mjs';
+import { createLocationPicker, showLocationMap, showHeatMap } from './maps.mjs';
 
 const $ = selector => document.querySelector(selector);
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -8,6 +10,9 @@ const STORAGE = 'dongne-reports-v1';
 let categories = CATEGORIES, guides = GUIDES, client = null, user = null, connected = false;
 let reports = [], page = 0, viewToken = 0, candidate = null;
 let recommendations = [];
+let locationPicker = null, heatView = null, disposeDetailMap = null;
+let mapSelection = { main: '', category: '', status: '' };
+let mapMode = 'heat';
 let filters = { district: '', dong: '', category: '' };
 const demo = !window.APP_CONFIG?.url;
 const PAGE_SIZE = 10;
@@ -47,7 +52,7 @@ function saveLocal(items) {
   try { localStorage.setItem(STORAGE, JSON.stringify(items)); }
   catch { toast('브라우저 저장이 제한되어 이번에 연 화면에서만 기록을 유지합니다.'); }
 }
-function pageName() { return ['report', 'board', 'stats', 'mine'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'report'; }
+function pageName() { return ['report', 'board', 'stats', 'mine', 'map'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'report'; }
 const options = (items, selected, empty = '') => `${empty ? `<option value="">${empty}</option>` : ''}${items.map(v => `<option value="${escapeHTML(v)}" ${v === selected ? 'selected' : ''}>${escapeHTML(v)}</option>`).join('')}`;
 function updateAccount() {
   $('#account').innerHTML = `${icon(user ? 'log-out' : 'user-round')}<span>${user ? '로그아웃' : demo ? '체험 사용자' : '로그인'}</span>`;
@@ -108,9 +113,12 @@ async function listReports(mine) {
 function intro(title, description) { return `<p class="eyebrow">DAEJEON · COMMUNITY RECORD</p><h1>${title}</h1><p class="lead">${description}</p>`; }
 async function render() {
   const token = ++viewToken, current = pageName();
+  locationPicker?.destroy(); locationPicker = null;
+  heatView?.destroy(); heatView = null;
   document.querySelectorAll('nav a').forEach(a => { a.classList.toggle('active', a.dataset.page === current); a.setAttribute('aria-current', a.dataset.page === current ? 'page' : 'false'); });
   candidate = null;
   if (current === 'report') { renderForm(); return; }
+  if (current === 'map') { await renderMapPage(token); return; }
   const mine = current === 'mine';
   $('#main').innerHTML = intro(current === 'stats' ? '우리 동네, 어떤 일이 있나요?' : mine ? '내가 남긴 동네기록' : '우리 동네 게시판', current === 'stats' ? '등록된 제보를 지역과 분야별로 살펴보세요. 공식 민원 통계가 아닙니다.' : mine ? '내 제보를 확인하고 해결 여부를 기록하세요.' : '이웃들이 발견한 생활 속 불편을 함께 확인하세요.') + filterMarkup(current !== 'stats') + '<div id="results" class="loading">기록을 불러오는 중…</div>';
   bindFilters(); icons();
@@ -136,6 +144,15 @@ function renderForm() {
   candidate = null; recommendations = [];
   $('#main').innerHTML = intro('작은 불편, 함께 남기는 변화', '우리 동네에서 발견한 문제를 기록해 주세요.') + `<div class="report-layout"><form id="report-form"><section class="section"><div class="section-title"><span class="step">1</span><h2>어디에서 발생했나요?</h2></div><p class="meta">대전광역시</p><div class="fields"><label>구<select name="district" required>${options(DISTRICTS, '', '구 선택')}</select></label><label>동<input name="dong" required maxlength="30" placeholder="예: 신성동"></label></div></section><section class="section"><div class="section-title"><span class="step">2</span><h2>어떤 불편을 발견했나요?</h2></div><label>문제 내용<textarea name="content" minlength="10" maxlength="1000" required placeholder="예: 집 앞 도로에 큰 구멍이 생겼어요. 차량이 지나갈 때 위험해 보여요."></textarea></label><div class="field-foot"><span>이름·연락처 등 개인정보는 적지 마세요.</span><span id="length">0 / 1,000</span></div><button type="button" id="analyze" class="secondary wide">${icon('scan-text')}분류 확인하기</button><div id="classification"></div><p id="form-error" class="form-error" role="alert"></p><button type="submit" id="submit-report" class="primary wide" disabled>${icon('send')}제보 등록하기</button></section></form><section class="support"><img src="/assets/street.jpg" alt="건물과 보행로가 있는 도시 거리" width="600" height="400"><p class="photo-credit">도시 거리 · Unsplash</p><h3>오늘의 동네를 기록해요</h3><ul class="support-list"><li>${icon('route')}<div>교통·도로<small>도로 파손, 불법주차, 보행로</small></div></li><li>${icon('leaf')}<div>환경<small>쓰레기, 악취, 하수구</small></div></li><li>${icon('lamp-street')}<div>공공시설<small>가로등, 공원, 시설물</small></div></li><li>${icon('volume-2')}<div>생활<small>소음, 불법 광고물</small></div></li></ul><p class="notice">제보는 게시판에 공개됩니다. 공식 신고는 등록 후 민원 안내에서 별도로 진행해 주세요.</p></section></div>`;
   const form = $('#report-form');
+  const locationFields = document.createElement('div'); locationFields.className = 'location-fields';
+  locationFields.innerHTML = `<label>상세 장소 (선택)<input name="place_text" maxlength="160" placeholder="예: 신성동 주민센터 정문 맞은편 보행로"></label><h3>발생 위치 (선택)</h3><p class="location-note">선택한 위치와 장소 설명은 게시글에 공개됩니다. 집 내부나 개인 주소 대신 문제가 있는 공공장소를 표시해 주세요. 구·동은 직접 확인해 입력해 주세요.</p><div id="location-picker" class="map-surface" role="region" aria-label="제보 위치 선택 지도"></div><div class="map-toolbar"><p id="location-output" role="status">위치 미선택</p><div class="map-actions"><button type="button" id="pick-center" class="secondary">${icon('map-pin')}중앙에 위치 지정</button><button type="button" id="clear-location" class="icon secondary" aria-label="선택 위치 지우기" title="선택 위치 지우기">${icon('x')}</button></div></div>`;
+  form.querySelector('.section').append(locationFields);
+  try {
+    locationPicker = createLocationPicker($('#location-picker'), $('#location-output'));
+    $('#pick-center').onclick = () => locationPicker.center();
+    $('#clear-location').onclick = () => locationPicker.clear();
+    form.district.addEventListener('change', () => { locationPicker.clear(); locationPicker.district(form.district.value); });
+  } catch (error) { $('#location-output').textContent = error.message; $('#pick-center').disabled = true; $('#clear-location').disabled = true; }
   form.content.oninput = () => { $('#length').textContent = `${form.content.value.length} / 1,000`; candidate = null; recommendations = []; $('#classification').innerHTML = ''; $('#submit-report').disabled = true; };
   $('#analyze').onclick = () => {
     if (!form.reportValidity()) return;
@@ -152,7 +169,8 @@ function renderForm() {
     event.preventDefault(); const data = Object.fromEntries(new FormData(form));
     if (!recommendations.includes(candidate)) { $('#form-error').textContent = '추천된 분류 중 하나를 선택해 주세요.'; return; }
     const payload = { content: data.content.trim(), district: data.district, dong: data.dong.trim().replace(/\s+/g, ' '), category_id: candidate };
-    const error = validateReport(payload, categories); if (error) { $('#form-error').textContent = error; return; }
+    Object.assign(payload, { place_text: data.place_text.trim() }, locationPicker?.read() || {latitude:null,longitude:null});
+    const error = validateReport(payload, categories) || validateLocation(payload); if (error) { $('#form-error').textContent = error; return; }
     if (!demo && !user) { $('#auth').showModal(); return; }
     const submit = $('#submit-report'); submit.disabled = true; $('#form-error').textContent = '';
     try {
@@ -164,6 +182,7 @@ function renderForm() {
   }; icons();
 }
 function showSuccess(report) {
+  locationPicker?.destroy(); locationPicker = null;
   const category = cat(report.category_id);
   $('#main').innerHTML = `<div class="section"><h1 class="success-title">${icon('circle-check')}${demo ? '체험 제보를 저장했습니다' : '제보가 등록되었습니다'}</h1><p class="lead">${demo ? '이 브라우저의 체험 게시판과 통계에 반영되었습니다.' : '게시판과 지역 통계에 반영되었습니다.'}</p><div class="classification"><p class="eyebrow">${escapeHTML(report.district)} · ${escapeHTML(report.dong)}</p><strong>${escapeHTML(category.main)} / ${escapeHTML(category.name)}</strong></div><div class="detail-body">${escapeHTML(report.content)}</div><div class="actions"><button class="primary" id="success-guide">${icon('book-open')}민원 안내 보기</button><button class="secondary" id="success-stats">${icon('chart-no-axes-combined')}우리 동네 현황</button><button class="secondary" id="again">${icon('plus')}새 제보</button></div><p class="notice">이 사이트에 등록한 제보는 행정기관에 자동으로 전달되지 않습니다.</p></div>`;
   $('#success-guide').onclick = () => showDetail(report, true);
@@ -175,11 +194,19 @@ function guideMarkup(category) {
   return `<section class="guide"><h3>${escapeHTML(category.main)} 민원 안내</h3><p>${escapeHTML(guide?.body || '')}</p><ul>${(guide?.checklist || []).map(item => `<li>${escapeHTML(item)}</li>`).join('')}</ul><h3>${escapeHTML(category.name)} 추가 안내</h3><p>${escapeHTML(category.extra)}</p><a href="https://www.safetyreport.go.kr/" target="_blank" rel="noopener noreferrer">안전신문고${icon('external-link')}</a><a href="https://www.epeople.go.kr/" target="_blank" rel="noopener noreferrer">국민신문고${icon('external-link')}</a><p class="notice">일반적인 신고 준비 안내입니다. 실제 접수 대상과 제출 요건은 공식 사이트에서 확인해 주세요. 이 버튼은 신고를 자동으로 접수하지 않습니다.</p></section>`;
 }
 function showDetail(report, showGuide = false) {
+  disposeDetailMap?.(); disposeDetailMap = null;
   const category = cat(report.category_id);
   $('#detail-content').innerHTML = `<div class="dialog-head"><h2>${escapeHTML(category.name)}</h2><button class="icon" data-close="detail" aria-label="닫기">${icon('x')}</button></div><div class="meta"><span>${escapeHTML(report.district)} · ${escapeHTML(report.dong)}</span><span>${date(report.created_at)}</span></div><div class="detail-body">${escapeHTML(report.content)}</div><button class="secondary" id="toggle-guide" aria-expanded="${showGuide}">${icon('book-open')}민원 안내 ${showGuide ? '접기' : '보기'}</button><div id="guide-content" ${showGuide ? '' : 'hidden'}>${guideMarkup(category)}</div>`;
   $('#toggle-guide').onclick = event => { const show = $('#guide-content').hidden; $('#guide-content').hidden = !show; event.currentTarget.setAttribute('aria-expanded', String(show)); event.currentTarget.innerHTML = `${icon('book-open')}민원 안내 ${show ? '접기' : '보기'}`; icons(); };
-  if (!$('#detail').open) $('#detail').showModal(); icons();
+  const locationSection = document.createElement('section'); locationSection.className = 'location-detail';
+  const hasLocation = validCoordinates(report.latitude, report.longitude);
+  locationSection.innerHTML = `<h3>발생 장소</h3><p>${escapeHTML(report.place_text || '상세 장소 미입력')}</p>${hasLocation ? `<div id="detail-map" class="map-surface" role="region" aria-label="제보 발생 위치 지도"></div><p class="location-note">작성자가 지정한 위치 · ${report.latitude.toFixed(6)}, ${report.longitude.toFixed(6)}</p>` : '<p class="meta">이 제보에는 지도 위치가 등록되지 않았습니다.</p>'}`;
+  $('#detail-content').querySelector('.detail-body').after(locationSection);
+  if (!$('#detail').open) $('#detail').showModal();
+  if (hasLocation) { try { disposeDetailMap = showLocationMap($('#detail-map'), report); } catch (error) { $('#detail-map').textContent = error.message; } }
+  icons();
 }
+$('#detail').addEventListener('close', () => { disposeDetailMap?.(); disposeDetailMap = null; });
 async function changeStatus(report, button) {
   button.disabled = true;
   const status = report.status === 'resolved' ? 'open' : 'resolved';
@@ -202,6 +229,45 @@ async function renderStats(token) {
   const total = selected.reduce((sum,r) => sum + Number(r.count), 0), resolved = selected.reduce((sum,r) => sum + Number(r.resolved), 0);
   $('#results').className = '';
   $('#results').innerHTML = `<div class="metric-strip"><div><small>${escapeHTML([filters.district, filters.dong].filter(Boolean).join(' ') || '대전 전체')} 제보</small><strong>${total}</strong><span>건</span></div><div><small>작성자 해결 확인</small><strong>${resolved}</strong><span>건</span></div><div><small>미해결 기록</small><strong>${total - resolved}</strong><span>건</span></div></div>${!total ? '<p class="notice">선택한 지역에는 아직 제보가 없습니다.</p>' : ''}<div class="charts"><section><h2>선택 지역 · 분야별 현황</h2>${bars(GROUPS.map(name => ({ name, value: selected.filter(r => r.main === name).reduce((sum,r) => sum + Number(r.count), 0) })))}</section><section><h2>대전 전체 · 구별 비교</h2><p class="meta">구별 비교는 위 지역 필터와 관계없이 전체 기록입니다.</p>${bars(DISTRICTS.map(name => ({ name, value: all.filter(r => r.district === name).reduce((sum,r) => sum + Number(r.count), 0) })))}</section></div><p class="notice">${demo ? '체험용 예시 데이터와 이 브라우저에서 작성한 제보입니다.' : '이 서비스에 등록된 제보만 집계합니다. 실제 지역 문제 전체를 대표하지 않습니다.'}</p>`;
+}
+async function renderMapPage(token) {
+  const subcategories = categories.filter(c => !mapSelection.main || c.main === mapSelection.main);
+  $('#main').innerHTML = intro('우리 동네 문제 지도', '어떤 문제가 어디에 모여 있는지 살펴보세요.') + `<form id="map-filters" class="filters map-filters"><label>분야<select name="main">${options(GROUPS, mapSelection.main, '모든 분야')}</select></label><label>세부 문제<select name="category"><option value="">모든 문제</option>${subcategories.map(c => `<option value="${escapeHTML(c.id)}" ${c.id === mapSelection.category ? 'selected' : ''}>${escapeHTML(c.name)}</option>`).join('')}</select></label><label>상태<select name="status"><option value="">전체 상태</option><option value="open" ${mapSelection.status === 'open' ? 'selected' : ''}>미해결</option><option value="resolved" ${mapSelection.status === 'resolved' ? 'selected' : ''}>작성자 해결 확인</option></select></label><button type="submit" class="secondary">${icon('refresh-cw')}새로고침</button></form><div id="map-results" class="loading" role="status">지도 통계를 불러오는 중…</div>`;
+  const form = $('#map-filters');
+  const changeFilters = event => {
+    event.preventDefault();
+    mapSelection = { main: form.elements.main.value, category: event.target.name === 'main' ? '' : form.elements.category.value, status: form.elements.status.value };
+    render();
+  };
+  form.onchange = changeFilters; form.onsubmit = changeFilters; icons();
+  try {
+    requireConnection();
+    let data;
+    if (demo) data = mapSummary(localReports(), categories, mapSelection);
+    else {
+      const result = await client.rpc('report_map_data', { p_main: mapSelection.main || null, p_category: mapSelection.category || null, p_status: mapSelection.status || null });
+      if (result.error) throw result.error;
+      data = result.data;
+    }
+    if (token !== viewToken) return;
+    const ranking = DISTRICTS.map(district => data.districts.find(d => d.district === district) || {district,count:0,located:0}).sort((a,b) => b.count - a.count);
+    const largest = Math.max(1, ...ranking.map(d => Number(d.count)));
+    const problem = cat(mapSelection.category)?.name || mapSelection.main || '모든 문제';
+    $('#map-results').className = '';
+    $('#map-results').removeAttribute('role');
+    $('#map-results').innerHTML = `<p class="map-subtitle">${escapeHTML(problem)} · ${mapSelection.status === 'open' ? '미해결' : mapSelection.status === 'resolved' ? '작성자 해결 확인' : '전체 상태'} · 전체 기간${demo ? ' · 체험 데이터' : ''}</p><div class="map-metrics"><span>전체 제보<strong>${data.total}</strong></span><span>위치 등록<strong>${data.located}</strong></span><span>위치 미등록<strong>${data.total - data.located}</strong></span></div>${!data.located ? `<p class="map-empty">${data.total ? '아직 위치가 등록된 제보가 없습니다. 기존 제보는 아래 구별 건수에 포함됩니다.' : '선택한 조건의 제보가 없습니다.'}</p>` : ''}${data.truncated ? '<p class="map-empty">지도는 건수가 많은 5,000개 집계 지점만 표시합니다. 구별 건수와 전체 제보 수는 모든 기록을 포함합니다.</p>' : ''}<div class="map-dashboard"><section><div class="map-toolbar"><fieldset class="map-mode" aria-label="지도 표시 방식"><label><input type="radio" name="map-mode" value="heat" ${mapMode === 'heat' ? 'checked' : ''}>밀집도</label><label><input type="radio" name="map-mode" value="count" ${mapMode === 'count' ? 'checked' : ''}>지점별 건수</label></fieldset><button type="button" id="map-reset" class="icon secondary" title="대전 전체 보기" aria-label="대전 전체 보기">${icon('maximize')}</button></div><div id="heat-map" class="map-surface heat-surface" role="region" aria-label="문제별 제보 히트맵"></div><div class="map-legend" id="heat-legend"><span>낮은 밀집도</span><span class="heat-scale" aria-hidden="true"></span><span>높은 밀집도</span></div><p class="location-note">약 100m 단위로 모은 제보 위치입니다. 색은 현재 선택 조건과 확대 수준에서의 상대적 밀집도이며 위험도를 뜻하지 않습니다.</p></section><section class="map-ranking"><h2>구별 제보 건수</h2><p class="map-subtitle">${escapeHTML(problem)} · 대전 전체</p>${ranking.map(d => `<div class="map-rank"><div class="map-rank-head"><button type="button" data-map-district="${escapeHTML(d.district)}" title="${escapeHTML(d.district)} 지도 보기">${escapeHTML(d.district)}</button><strong>${d.count}건</strong></div><div class="track" role="img" aria-label="${escapeHTML(d.district)} ${d.count}건"><div class="bar" style="width:${100 * d.count / largest}%"></div></div><small>위치 등록 ${d.located} · 미등록 ${d.count - d.located}</small></div>`).join('')}</section></div><p class="notice">구별 건수는 작성자가 입력한 구를 기준으로 집계하며 위치가 없는 제보도 포함합니다. 인구·면적을 보정하지 않은 등록 건수로, 실제 지역 문제 전체나 위험도를 대표하지 않습니다.</p>`;
+    try {
+      heatView = showHeatMap($('#heat-map'), data); heatView.mode(mapMode);
+      $('#heat-legend').hidden = mapMode !== 'heat';
+      document.querySelectorAll('[name="map-mode"]').forEach(input => input.onchange = () => { mapMode = input.value; heatView.mode(mapMode); $('#heat-legend').hidden = mapMode !== 'heat'; });
+      $('#map-reset').onclick = () => heatView.reset();
+      document.querySelectorAll('[data-map-district]').forEach(button => button.onclick = () => heatView.district(button.dataset.mapDistrict));
+    } catch (error) { $('#heat-map').textContent = error.message; $('#map-reset').disabled = true; }
+    icons();
+  } catch (error) {
+    if (token !== viewToken) return;
+    $('#map-results').className = 'error-box'; $('#map-results').textContent = `지도 통계를 불러오지 못했습니다. ${error.message} 위 새로고침 버튼으로 다시 시도해 주세요.`;
+  }
 }
 $('#account').onclick = async () => {
   if (demo) { toast('체험 모드에서는 회원가입 없이 내 제보를 기록할 수 있어요.'); return; }

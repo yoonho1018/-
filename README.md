@@ -61,7 +61,19 @@ Supabase 연결 전 체험판부터 배포할 때는 Vercel Environment Variable
 - 63~64쪽: Supabase 연결 주소와 공개키 찾기.
 - 69~71쪽: Vercel에서 Supabase 연결 정보 설정 및 배포.
 
-## 개발 및 검증
+## 지도와 히트맵
+
+- 기존 프로젝트는 `supabase/map-locations.sql`을 한 번 적용합니다. 새 프로젝트는 `schema.sql`, `seed.sql`, `map-locations.sql` 순서입니다.
+- 제보에 상세 장소(160자 이하)와 지도 위치를 선택적으로 저장합니다. 구를 바꾸면 기존 핀을 지웁니다. 좌표는 대전 주변 사각 범위만 검증하며 행정구역 자동 판정이나 주소 검색은 하지 않습니다.
+- 게시글 상세에서 작성자가 찍은 위치를 봅니다. 좌표가 없는 기존 제보에 임의의 위치를 부여하지 않습니다.
+- 문제 지도는 분야, 세부 문제, 해결 상태를 함께 필터링합니다. 구별 건수는 작성자가 입력한 구 기준이며 위치 미등록 제보도 포함합니다.
+- `report_map_data`는 RLS를 따르는 security-invoker 함수입니다. REST 기본 행 수 제한으로 합계가 잘리지 않도록 서버에서 JSON으로 집계합니다. 지도는 좌표를 소수 셋째 자리(약 100m 격자)로 묶고, 최대 5,000개 집계 지점을 표시합니다. 초과 시 화면에 제한을 알리며 전체 합계는 유지합니다.
+- 히트맵 색은 현재 필터에서의 상대적인 공간 밀집도입니다. 위험도나 인구 대비 발생률이 아닙니다. 반복 제보도 각각 한 건으로 계산합니다.
+- Leaflet 1.9.4, Leaflet.heat 0.2.0을 버전 고정하여 `public/vendor`에 포함했습니다. 라이선스 파일도 함께 보관합니다. 지도 배경은 OpenStreetMap의 표준 타일이며 API 키가 필요하지 않습니다. 출처 표기와 브라우저 캐시를 유지하며 대량 다운로드하지 않습니다. 트래픽 증가 시 [타일 이용 정책](https://operations.osmfoundation.org/policies/tiles/)에 따라 별도 제공자로 전환해야 합니다.
+- 파일로 여는 독립 HTML은 Referer를 제공하지 못하므로 외부 지도 타일을 요청하지 않습니다. 실제 지도 배경은 로컬 HTTP 서버 또는 Vercel 사이트에서 확인하세요.
+- `node --test tests/*.test.mjs`로 좌표·집계·분류를 검사합니다. `scripts/check-maps.mjs`는 체험 데이터로 위치 선택, 저장, 히트맵 픽셀, 필터, 모바일, 화면 전환을 검사합니다. Playwright 설치 경로를 `PLAYWRIGHT_PACKAGE_ROOT`로 전달합니다.
+
+## 기존 검사
 
 - `node --test tests/domain.test.mjs`: 분류, 동점, 입력 검증, 통계, 키 설정 검사.
 - `node scripts/seed.mjs`: 분류 데이터로 SQL 초기 데이터 생성.

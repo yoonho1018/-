@@ -7,9 +7,13 @@
   <title>동네기록 | 대전 생활불편</title>
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/recommendations.css">
+  <link rel="stylesheet" href="/vendor/leaflet.css">
+  <link rel="stylesheet" href="/maps.css">
   <script src="/config.js"></script>
   <script defer src="/vendor/supabase.js"></script>
   <script defer src="/vendor/lucide.js"></script>
+  <script defer src="/vendor/leaflet.js"></script>
+  <script defer src="/vendor/leaflet-heat.js"></script>
   <script type="module" src="/app.mjs"></script>
 </head>
 <body>
@@ -18,8 +22,9 @@
   <div class="shell">
     <aside><nav aria-label="주 메뉴">
       <a href="#report" data-page="report"><i data-lucide="square-pen"></i>생활불편 제보</a>
-      <a href="#board" data-page="board"><i data-lucide="list"></i>우리 동네 게시판</a>
+      <a href="#board" data-page="board"><i data-lucide="list"></i>게시판</a>
       <a href="#stats" data-page="stats"><i data-lucide="chart-no-axes-combined"></i>지역 통계</a>
+      <a href="#map" data-page="map"><i data-lucide="map"></i>문제 지도</a>
       <a href="#mine" data-page="mine"><i data-lucide="notebook-pen"></i>내 제보</a>
     </nav><div class="sidebar-bottom"><span class="dot"></span>대전광역시 생활불편 기록<br><small>시민이 남긴 제보를 모읍니다.</small></div></aside>
     <main id="main" tabindex="-1"></main>
