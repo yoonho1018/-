@@ -1,0 +1,36 @@
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const { chromium } = createRequire(process.env.PLAYWRIGHT_PACKAGE_ROOT + '/package.json')('playwright');
+const browser = await chromium.launch({ headless: true, channel: 'msedge' });
+try {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto(pathToFileURL(path.resolve('index.html')).href + '#board');
+  await page.evaluate(() => localStorage.setItem('dongne-reports-v1', JSON.stringify(Array.from({length:12}, (_,i) => ({id:'vote-'+i,content:'테스트 제보입니다. 보행로 확인이 필요합니다. '+i,district:'유성구',dong:'신성동',category_id:'road',user_id:'sample',status:'open',created_at:new Date(2026,0,12-i).toISOString(),upvotes:i===11?7:i===0?4:0,downvotes:0})))));
+  await page.reload();
+  await page.locator('[data-vote="1"][data-report="vote-0"]').click();
+  await page.locator('[data-report="vote-0"][aria-pressed="true"]').waitFor();
+  await page.getByRole('button', {name:'추천 글',exact:true}).click();
+  await page.locator('[data-detail="vote-11"]').waitFor();
+  assert.equal(await page.locator('.report-row').count(),2);
+  assert.equal(await page.locator('[data-detail]').first().getAttribute('data-detail'),'vote-11');
+  await page.locator('[data-vote="-1"][data-report="vote-0"]').click();
+  await page.locator('[data-detail="vote-0"]').waitFor({state:'detached'});
+  await page.getByRole('button',{name:'모든 제보',exact:true}).click();
+  await page.locator('[data-vote="-1"][data-report="vote-0"][aria-pressed="true"]').waitFor();
+  await page.locator('[data-vote="-1"][data-report="vote-0"]').click();
+  await page.locator('[data-vote="-1"][data-report="vote-0"][aria-pressed="false"]').waitFor();
+  await page.locator('#board-sort').selectOption('votes');
+  await page.locator('[data-detail="vote-11"]').waitFor();
+  assert.equal(await page.locator('[data-detail]').first().getAttribute('data-detail'),'vote-11');
+  await page.screenshot({path:'tmp/votes-desktop.png',fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.screenshot({path:'tmp/votes-mobile.png',fullPage:true});
+  await page.reload();
+  await page.locator('[data-vote="-1"][data-report="vote-0"][aria-pressed="false"]').waitFor();
+  assert.deepEqual(errors,[]);
+  console.log('PASS: threshold promotion/removal, switching/cancel, server-sized pagination fixture sorting, persistence, desktop/mobile');
+} finally { await browser.close(); }

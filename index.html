@@ -700,6 +700,7 @@ input,select,textarea{border-color:#bac9cb;background:#f9fcfc;border-radius:4px}
 .classification{background:#dcece6}.detail-body{background:#e9efef}footer{background:#dce4e5;color:#4a6165}dialog{background:#f4f8f8}.mode.live{background:#c8e9dc;color:#184f40}
 @media(max-width:1100px){.report-layout{grid-template-columns:1fr}.support{display:none}.shell{grid-template-columns:195px minmax(0,1fr)}main{padding:28px}}
 @media(max-width:700px){.shell{display:block}main{padding:24px 16px 40px}h1{font-size:24px}.topbar{padding:0 16px}aside{border-bottom-color:#526367}nav a{font-size:10px}.filters{padding:14px 10px}.report-row{padding:18px 10px}.metric-strip{padding:18px 10px}}
+.board-controls{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:24px 0 16px}.board-tabs{display:flex;border-bottom:2px solid #b7c8cb;gap:8px}.board-tabs button{background:transparent;border-radius:0;border-bottom:3px solid transparent}.board-tabs button[aria-pressed=true]{color:#066253;border-bottom-color:#087b70;background:#d2e9e1}.board-controls label{margin:0;min-width:100px}.board-controls select{margin:2px 0 0}.vote-controls{display:flex;gap:6px}.vote-button{min-width:62px;min-height:44px;padding:8px;border:1px solid #a6bbbc;background:#f5f9f9;font-variant-numeric:tabular-nums}.vote-button[aria-pressed=true]{background:#bce7d8;border-color:#087b70;color:#145746}.vote-button[data-vote="-1"][aria-pressed=true]{background:#f5d8df;border-color:#ae5268;color:#803548}.row-actions{flex-wrap:wrap;justify-content:flex-end;max-width:310px}@media(max-width:700px){.board-controls{gap:8px}.board-tabs{gap:0}.board-tabs button{padding:10px;font-size:14px}.row-actions{max-width:none}.vote-controls{margin-right:auto}}
 </style>
   <script>window.APP_CONFIG = {url:"",key:""};</script>
 
@@ -1125,6 +1126,7 @@ const STORAGE = 'dongne-reports-v1';
 let categories = CATEGORIES, guides = GUIDES, client = null, user = null, connected = false;
 let reports = [], page = 0, viewToken = 0, candidate = null;
 let recommendations = [];
+let boardTab = 'all', boardSort = 'latest', voteBusy = false;
 let locationPicker = null, heatView = null, disposeDetailMap = null;
 let mapSelection = { main: '', category: '', status: '' };
 let mapMode = 'heat';
@@ -1185,7 +1187,7 @@ async function init() {
         const changed = user?.id !== session?.user?.id;
         user = session?.user || null; updateAccount();
         // Data requests must run outside Supabase's synchronous auth callback.
-        if (changed && pageName() === 'mine') setTimeout(() => render(), 0);
+        if (changed && ['mine', 'board'].includes(pageName())) setTimeout(() => render(), 0);
       });
       const sessionResult = await client.auth.getSession();
       if (sessionResult.error) throw sessionResult.error;
@@ -1217,13 +1219,25 @@ function applyFilters(items, mine = false) {
 }
 async function listReports(mine) {
   requireConnection();
-  if (demo) { const items = applyFilters(localReports(), mine); return { data: items.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), count: items.length }; }
-  let query = client.from('reports').select('*', { count: 'exact' }).order('created_at', { ascending: false }).order('id').range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+  const popular = !mine && boardTab === 'popular';
+  const ranked = !mine && (popular || boardSort === 'votes');
+  if (demo) { const items = applyFilters(localReports(), mine).filter(r => !popular || (r.upvotes || 0) >= 5).sort((a,b) => (ranked ? (b.upvotes || 0) - (a.upvotes || 0) : 0) || b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id)); return { data: items.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), count: items.length }; }
+  let query = client.from('reports').select('*', { count: 'exact' });
+  if (popular) query = query.gte('upvotes', 5);
+  if (ranked) query = query.order('upvotes', { ascending: false });
+  query = query.order('created_at', { ascending: false }).order('id').range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
   if (mine) query = query.eq('user_id', user.id);
   if (filters.district) query = query.eq('district', filters.district);
   if (filters.dong) query = query.eq('dong', filters.dong);
   if (filters.category) query = query.in('category_id', categories.filter(c => c.main === filters.category).map(c => c.id));
-  const result = await query; if (result.error) throw result.error; return result;
+  const viewer = user?.id;
+  const result = await query; if (result.error) throw result.error;
+  if (viewer && result.data.length) {
+    const votes = await client.from('report_votes').select('report_id,value').eq('user_id', viewer).in('report_id', result.data.map(r => r.id));
+    if (votes.error) throw votes.error;
+    result.data = result.data.map(r => ({ ...r, my_vote: votes.data.find(v => v.report_id === r.id)?.value || 0 }));
+  }
+  return result;
 }
 function intro(title, description) { return `<p class="eyebrow">DAEJEON · COMMUNITY RECORD</p><h1>${title}</h1><p class="lead">${description}</p>`; }
 async function render() {
@@ -1236,25 +1250,66 @@ async function render() {
   if (current === 'map') { await renderMapPage(token); return; }
   const mine = current === 'mine';
   $('#main').innerHTML = intro(current === 'stats' ? '우리 동네, 어떤 일이 있나요?' : mine ? '내가 남긴 동네기록' : '우리 동네 게시판', current === 'stats' ? '등록된 제보를 지역과 분야별로 살펴보세요. 공식 민원 통계가 아닙니다.' : mine ? '내 제보를 확인하고 해결 여부를 기록하세요.' : '이웃들이 발견한 생활 속 불편을 함께 확인하세요.') + filterMarkup(current !== 'stats') + '<div id="results" class="loading">기록을 불러오는 중…</div>';
+  if (current === 'board') {
+    $('#filters').insertAdjacentHTML('beforebegin', `<div class="board-controls"><div class="board-tabs" role="group" aria-label="게시판 구분"><button data-board-tab="all" aria-pressed="${boardTab === 'all'}">모든 제보</button><button data-board-tab="popular" aria-pressed="${boardTab === 'popular'}">추천 글</button></div><label>정렬<select id="board-sort" ${boardTab === 'popular' ? 'disabled' : ''}><option value="latest" ${boardTab === 'all' && boardSort === 'latest' ? 'selected' : ''}>최신순</option><option value="votes" ${boardTab === 'popular' || boardSort === 'votes' ? 'selected' : ''}>추천순</option></select></label></div>`);
+    document.querySelectorAll('[data-board-tab]').forEach(button => button.onclick = () => { boardTab = button.dataset.boardTab; page = 0; render(); });
+    $('#board-sort').onchange = event => { boardSort = event.target.value; page = 0; render(); };
+  }
   bindFilters(); icons();
   if (mine && !demo && !user) { $('#results').innerHTML = '<div class="empty">로그인하면 내가 작성한 제보를 볼 수 있습니다.<div class="actions"><button class="primary" id="login-here">로그인</button></div></div>'; $('#login-here').onclick = () => $('#auth').showModal(); return; }
   try {
     if (current === 'stats') { await renderStats(token); return; }
     const result = await listReports(mine);
     if (token !== viewToken) return;
+    if (page > 0 && page * PAGE_SIZE >= result.count) { page = Math.max(0, Math.ceil(result.count / PAGE_SIZE) - 1); return render(); }
     reports = result.data;
     $('#results').className = '';
-    $('#results').innerHTML = `<p class="count-label">${demo ? '체험 기록' : '전체'} ${result.count}건</p><div class="list">${reports.length ? reports.map(r => rowMarkup(r, mine)).join('') : `<div class="empty">${icon('inbox')}<p>아직 등록된 제보가 없습니다.</p><a href="#report">첫 제보 남기기</a></div>`}</div><div class="pager"><button class="secondary" id="prev" ${page === 0 ? 'disabled' : ''} aria-label="이전 페이지">${icon('chevron-left')}</button><span>${page + 1} / ${Math.max(1, Math.ceil(result.count / PAGE_SIZE))}</span><button class="secondary" id="next" ${(page + 1) * PAGE_SIZE >= result.count ? 'disabled' : ''} aria-label="다음 페이지">${icon('chevron-right')}</button></div>`;
+    $('#results').innerHTML = `<p class="count-label">${demo ? '체험 기록' : '전체'} ${result.count}건</p><div class="list">${reports.length ? reports.map(r => rowMarkup(r, mine)).join('') : `<div class="empty">${icon('inbox')}<p>${current === 'board' && boardTab === 'popular' ? '추천 5개 이상 받은 글이 아직 없습니다.' : '아직 등록된 제보가 없습니다.'}</p><a href="#report">첫 제보 남기기</a></div>`}</div><div class="pager"><button class="secondary" id="prev" ${page === 0 ? 'disabled' : ''} aria-label="이전 페이지">${icon('chevron-left')}</button><span>${page + 1} / ${Math.max(1, Math.ceil(result.count / PAGE_SIZE))}</span><button class="secondary" id="next" ${(page + 1) * PAGE_SIZE >= result.count ? 'disabled' : ''} aria-label="다음 페이지">${icon('chevron-right')}</button></div>`;
     $('#prev').onclick = () => { page--; render(); }; $('#next').onclick = () => { page++; render(); };
     document.querySelectorAll('[data-detail]').forEach(button => button.onclick = () => showDetail(reports.find(r => r.id === button.dataset.detail)));
     document.querySelectorAll('[data-status]').forEach(button => button.onclick = () => changeStatus(reports.find(r => r.id === button.dataset.status), button));
+    document.querySelectorAll('[data-vote]').forEach(button => button.onclick = () => castVote(button.dataset.report, Number(button.dataset.vote)));
     icons();
   } catch (error) { if (token === viewToken) { $('#results').className = 'error-box'; $('#results').textContent = `불러오지 못했습니다. ${error.message}`; } }
 }
 function rowMarkup(r, mine) {
   const category = cat(r.category_id);
-  return `<article class="report-row"><div><div class="meta"><span>${escapeHTML(r.district)} · ${escapeHTML(r.dong)}</span><span>${date(r.created_at)}</span></div><p>${escapeHTML(r.content.length > 100 ? r.content.slice(0,100) + '…' : r.content)}</p><div class="meta"><span>${escapeHTML(category?.main)} / ${escapeHTML(category?.name)}</span><span class="tag ${r.status === 'resolved' ? 'resolved' : ''}">${r.status === 'resolved' ? '작성자 해결 확인' : '등록됨'}</span></div></div><div class="row-actions"><button class="secondary" data-detail="${escapeHTML(r.id)}">상세·민원 안내${icon('arrow-up-right')}</button>${mine ? `<button class="icon secondary" data-status="${escapeHTML(r.id)}" title="${r.status === 'resolved' ? '미해결로 변경' : '해결 완료로 변경'}" aria-label="${r.status === 'resolved' ? '미해결로 변경' : '해결 완료로 변경'}">${icon(r.status === 'resolved' ? 'rotate-ccw' : 'check')}</button>` : ''}</div></article>`;
+  return `<article class="report-row"><div><div class="meta"><span>${escapeHTML(r.district)} · ${escapeHTML(r.dong)}</span><span>${date(r.created_at)}</span></div><p>${escapeHTML(r.content.length > 100 ? r.content.slice(0,100) + '…' : r.content)}</p><div class="meta"><span>${escapeHTML(category?.main)} / ${escapeHTML(category?.name)}</span><span class="tag ${r.status === 'resolved' ? 'resolved' : ''}">${r.status === 'resolved' ? '작성자 해결 확인' : '등록됨'}</span></div></div><div class="row-actions">${voteMarkup(r)}<button class="secondary" data-detail="${escapeHTML(r.id)}">상세·민원 안내${icon('arrow-up-right')}</button>${mine ? `<button class="icon secondary" data-status="${escapeHTML(r.id)}" title="${r.status === 'resolved' ? '미해결로 변경' : '해결 완료로 변경'}" aria-label="${r.status === 'resolved' ? '미해결로 변경' : '해결 완료로 변경'}">${icon(r.status === 'resolved' ? 'rotate-ccw' : 'check')}</button>` : ''}</div></article>`;
 }
+
+function voteMarkup(r) {
+  return `<div class="vote-controls">${[1,-1].map(value => {
+    const label = value === 1 ? '추천' : '비추천', count = value === 1 ? r.upvotes || 0 : r.downvotes || 0;
+    return `<button class="vote-button" data-report="${escapeHTML(r.id)}" data-vote="${value}" aria-pressed="${r.my_vote === value}" aria-label="${label} ${count}개" title="${label}" ${voteBusy ? 'disabled' : ''}>${icon(value === 1 ? 'thumbs-up' : 'thumbs-down')}<span>${count}</span></button>`;
+  }).join('')}</div>`;
+}
+async function castVote(id, direction) {
+  if (voteBusy) return;
+  if (!demo && !user) { $('#auth').showModal(); toast('로그인 후 추천·비추천을 남길 수 있어요.'); return; }
+  const record = reports.find(r => r.id === id);
+  if (!record) return;
+  const value = record.my_vote === direction ? 0 : direction, token = viewToken;
+  voteBusy = true;
+  document.querySelectorAll('[data-vote]').forEach(b => b.disabled = true);
+  try {
+    requireConnection();
+    if (demo) {
+      saveLocal(localReports().map(r => r.id !== id ? r : { ...r, my_vote: value,
+        upvotes: (r.upvotes || 0) + Number(value === 1) - Number(r.my_vote === 1),
+        downvotes: (r.downvotes || 0) + Number(value === -1) - Number(r.my_vote === -1) }));
+    } else {
+      const result = await client.rpc('set_report_vote', { p_report: id, p_value: value });
+      if (result.error) throw result.error;
+    }
+    toast(value === 0 ? '평가를 취소했어요.' : direction === 1 ? '추천했어요.' : '비추천했어요.');
+  } catch (error) { toast('평가를 저장하지 못했어요. ' + error.message); }
+  finally {
+    voteBusy = false;
+    if (token === viewToken) await render();
+    else document.querySelectorAll('[data-vote]').forEach(b => b.disabled = false);
+  }
+}
+
 function renderForm() {
   candidate = null; recommendations = [];
   $('#main').innerHTML = intro('작은 불편, 함께 남기는 변화', '우리 동네에서 발견한 문제를 기록해 주세요.') + `<div class="report-layout"><form id="report-form"><section class="section"><div class="section-title"><span class="step">1</span><h2>어디에서 발생했나요?</h2></div><p class="meta">대전광역시</p><div class="fields"><label>구<select name="district" required>${options(DISTRICTS, '', '구 선택')}</select></label><label>동<input name="dong" required maxlength="30" placeholder="예: 신성동"></label></div></section><section class="section"><div class="section-title"><span class="step">2</span><h2>어떤 불편을 발견했나요?</h2></div><label>문제 내용<textarea name="content" minlength="10" maxlength="1000" required placeholder="예: 집 앞 도로에 큰 구멍이 생겼어요. 차량이 지나갈 때 위험해 보여요."></textarea></label><div class="field-foot"><span>이름·연락처 등 개인정보는 적지 마세요.</span><span id="length">0 / 1,000</span></div><button type="button" id="analyze" class="secondary wide">${icon('scan-text')}분류 확인하기</button><div id="classification"></div><p id="form-error" class="form-error" role="alert"></p><button type="submit" id="submit-report" class="primary wide" disabled>${icon('send')}제보 등록하기</button></section></form><section class="support"><h3>분야별 동네기록</h3><ul class="support-list"><li>${icon('route')}<div>교통·도로<small>타슈·킥보드, 도로, 보행 장애</small></div></li><li>${icon('leaf')}<div>환경<small>쓰레기, 악취, 하수구</small></div></li><li>${icon('lamp-street')}<div>공공시설<small>가로등, 공원, 시설물</small></div></li><li>${icon('volume-2')}<div>생활<small>소음, 불법 광고물</small></div></li></ul><p class="notice">제보는 게시판에 공개됩니다. 공식 신고는 등록 후 민원 안내에서 별도로 진행해 주세요.</p></section></div>`;
