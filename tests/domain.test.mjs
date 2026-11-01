@@ -17,9 +17,9 @@ test('repetition cannot count as hundreds of separate keyword matches', () => {
   assert.deepEqual(classify('포트홀 포트홀 포트홀').candidates[0].matches, ['포트홀']);
   assert.equal(classify('차가운 날씨').best, 0);
 });
-test('12 categories each contain 100 distinct normalized terms', () => {
-  assert.equal(CATEGORIES.length, 12);
-  for (const category of CATEGORIES) {
+test('original 12 categories retain 100 distinct normalized terms', () => {
+  assert.equal(CATEGORIES.length, 16);
+  for (const category of CATEGORIES.slice(0, 12)) {
     assert.equal(category.keywords.length, 100, category.id);
     assert.equal(new Set(category.keywords.map(normalizeText)).size, 100, category.id);
     assert.ok(category.keywords.every(term => normalizeText(term).length >= 2));
@@ -33,6 +33,11 @@ test('similarity formula reference cases and empty sets', () => {
   assert.ok(Math.abs(cosineSimilarity(new Map([['a',1],['b',1]]), new Map([['a',1]])) - 1/Math.sqrt(2)) < 1e-12);
 });
 const cases = [
+  ['bicycle', '타슈가 엎어져 있어서 통행이 어려워요.'],
+  ['bicycle', '공유자전거가 인도를 막고 있어요.'],
+  ['scooter', '전동킥보드가 쓰러져 있어서 지나갈 수 없어요.'],
+  ['obstruction', '인도에 쌓인 공사 자재 때문에 걷기 힘들어요.'],
+  ['accessibility', '경사로가 막혀서 휠체어가 지나갈 수 없어요.'],
   ['road', '집 앞 도로에 큰 구멍이 생겨서 차가 덜컹거려요.'],
   ['road', '아스팔트가 벗겨지고 바닥이 움푹 파였어요.'],
   ['road', '차도가 내려앉아서 바퀴가 빠질 것 같아요.'],

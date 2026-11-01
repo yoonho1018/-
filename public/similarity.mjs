@@ -57,7 +57,8 @@ export function rankCategories(text, categories) {
     const distinctive = shared.filter(f => f.length >= 3 && df.get(f) <= Math.max(1, categories.length / 3));
     const cosine = cosineSimilarity(vector, doc.vector);
     const jaccard = jaccardSimilarity(features, doc.features);
-    const supported = matches.length > 0 || (distinctive.length >= 2 && shared.length >= 4);
+    // Compact specialist dictionaries need explicit evidence, not incidental n-grams.
+    const supported = matches.length > 0 || (doc.terms.length > 20 && distinctive.length >= 2 && shared.length >= 4);
     return { category: doc.category, matches, evidence: matches.length ? matches.slice(0, 3) : distinctive.sort((a,b) => b.length - a.length).slice(0, 3), cosine, jaccard, score: 0.7 * cosine + 0.3 * jaccard, supported };
   }).sort((a,b) => b.score - a.score || a.category.id.localeCompare(b.category.id));
   const eligible = scores.filter(item => item.supported && item.score >= 0.025);
