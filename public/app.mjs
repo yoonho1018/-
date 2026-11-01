@@ -230,7 +230,7 @@ function renderForm() {
     recommendations = result.candidates.map(item => item.category.id);
     candidate = null; $('#submit-report').disabled = true; $('#form-error').textContent = '';
     $('#classification').innerHTML = recommendations.length
-      ? `<fieldset class="recommendations"><legend>내 상황에 맞는 분류</legend>${result.candidates.map((item, i) => `<label class="recommendation"><input type="radio" name="recommended-category" value="${escapeHTML(item.category.id)}"><span class="recommendation-body"><span class="recommendation-top"><strong>${escapeHTML(item.category.name)}</strong><span class="rank">${i + 1}순위</span></span><span class="meta">${escapeHTML(item.category.main)}</span><span class="evidence">${item.matches.length ? '일치 표현' : '비슷한 표현'}: ${escapeHTML(item.evidence.join(', '))}</span></span></label>`).join('')}</fieldset>`
+      ? `<fieldset class="recommendations"><legend>내 상황에 맞는 분류</legend><p class="meta">관련도가 높은 순서로 최대 5개를 보여드려요. 내용을 비교하고 가장 알맞은 분류를 선택해 주세요.</p>${result.candidates.map((item, i) => `<label class="recommendation"><input type="radio" name="recommended-category" value="${escapeHTML(item.category.id)}"><span class="recommendation-body"><span class="recommendation-top"><strong>${escapeHTML(item.category.name)}</strong><span class="rank">${i + 1}순위</span></span><span class="meta">${escapeHTML(item.category.main)}</span><span class="evidence">${item.matches.length ? '일치 표현' : '비슷한 표현'}: ${escapeHTML(item.evidence.join(', '))}</span></span></label>`).join('')}</fieldset>`
       : '<div class="classification"><strong>관련 분류를 찾기 어려워요</strong><p>문제가 생긴 대상과 상태를 조금 더 적어 주세요.</p><button type="button" class="secondary" id="refine-content">내용 보완하기</button></div>';
     document.querySelectorAll('input[name="recommended-category"]').forEach(input => input.onchange = () => { candidate = input.value; $('#submit-report').disabled = !recommendations.includes(candidate); });
     $('#refine-content')?.addEventListener('click', () => form.content.focus());
@@ -446,3 +446,4 @@ $('#auth').addEventListener('close', () => { $('#auth-form').password.value = ''
 document.addEventListener('click', event => { const close = event.target.closest('[data-close]'); if (close) document.getElementById(close.dataset.close).close(); });
 window.addEventListener('hashchange', () => { page = 0; render(); });
 init();
+

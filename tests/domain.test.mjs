@@ -78,7 +78,7 @@ const cases = [
 for (const [id, text] of cases) test(`top recommendation ${id}: ${text}`, () => {
   const result = classify(text);
   assert.equal(result.candidates[0]?.category.id, id, JSON.stringify(result.candidates.map(c => [c.category.id, c.score])));
-  assert.ok(result.candidates.length <= 3);
+  assert.ok(result.candidates.length <= 5);
   assert.ok(result.candidates.every(c => c.score > 0 && c.score <= 1));
 });
 test('generic, empty, numerical and unrelated descriptions do not get arbitrary choices', () => {
@@ -89,6 +89,32 @@ test('spacing variants and mixed problems', () => {
   assert.equal(classify('도로 위에 쓰레기가 많이 쌓였어요').candidates[0].category.id, 'waste');
   assert.ok(classify('하수구가 막히고 악취도 나요').candidates.some(c => c.category.id === 'drain'));
   assert.equal(classify('anything', []).candidates.length, 0);
+});
+
+test('long poster report suggests advertisements, including with a server dictionary', () => {
+  const text = '불법적인 포스터들이 많이 붙어 있어요. 계속 방치되면 보기에도 좋지 않고 더욱이 어린 아이들이 보게 된다면 더 안 좋을 것 같아요. 빠른 수거 부탁드립니다. 도로 주변이 많이 지저분한 것 같습니다.';
+  const serverCategories = JSON.parse(JSON.stringify(CATEGORIES));
+  for (const categories of [CATEGORIES, serverCategories]) {
+    const result = classify(text, categories);
+    assert.equal(result.candidates[0].category.id, 'ad');
+    assert.ok(result.candidates[0].matches.includes('포스터'));
+    assert.ok(result.candidates.length <= 5);
+    assert.ok(result.candidates.some(item => item.score < result.best * 0.45), 'lower-ranked supported choices remain available');
+  }
+});
+
+test('mixed report offers exactly the top five supported categories in score order', () => {
+  const result = classify('도로에 포트홀이 있고 쓰레기와 현수막이 쌓여 있고 가로등과 신호등이 꺼졌고 킥보드가 쓰러져 있어요.');
+  assert.equal(result.candidates.length, 5);
+  assert.equal(new Set(result.candidates.map(item => item.category.id)).size, 5);
+  assert.ok(result.candidates.every((item, i, list) => !i || list[i - 1].score >= item.score));
+  assert.ok(result.scores.filter(item => item.supported).length > 5);
+});
+
+test('partial matches in small dictionaries remain selectable below exact evidence', () => {
+  const result = classify('점자블록이 빠져 있어 보행에 불편합니다.');
+  assert.equal(result.candidates[0].category.id, 'sidewalk');
+  assert.ok(result.candidates.some(item => item.category.id === 'accessibility' && !item.matches.length));
 });
 test('validation rejects missing area, short text and forged category', () => {
   const valid = { content: '집 앞 도로에 구멍이 크게 생겼어요.', district: '유성구', dong: '신성동', category_id: 'road' };

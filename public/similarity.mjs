@@ -1,5 +1,10 @@
 export const normalizeText = value => String(value).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 const STOP_TERMS = new Set(['파손', '고장', '불편', '문제', '발생', '신고', '수리', '위험', '시설', '보수', '교체', '계속']);
+// Supplement both bundled and server dictionaries without requiring a DB migration.
+const RELATED_TERMS = {
+  ad: ['포스터', '불법 포스터', '광고지', '홍보물', '홍보 전단', '광고 포스터', '선정적인 광고', '음란 광고', '무단으로 붙인', '불법 부착물']
+};
+export const MAX_CATEGORY_CANDIDATES = 5;
 
 export function characterFeatures(value) {
   const text = normalizeText(value), result = new Set();
@@ -30,7 +35,8 @@ const indexes = new WeakMap();
 function indexCategories(categories) {
   if (indexes.has(categories)) return indexes.get(categories);
   const documents = categories.map(category => {
-    const terms = [...new Set(category.keywords)].filter(term => normalizeText(term).length >= 2);
+    const terms = [...new Set([...category.keywords, ...(RELATED_TERMS[category.id] || [])])]
+      .filter(term => normalizeText(term).length >= 2 && !STOP_TERMS.has(normalizeText(term)));
     const features = new Set(terms.flatMap(term => [...characterFeatures(term)]));
     return { category, terms, features };
   });
@@ -57,13 +63,16 @@ export function rankCategories(text, categories) {
     const distinctive = shared.filter(f => f.length >= 3 && df.get(f) <= Math.max(1, categories.length / 3));
     const cosine = cosineSimilarity(vector, doc.vector);
     const jaccard = jaccardSimilarity(features, doc.features);
-    // Compact specialist dictionaries need explicit evidence, not incidental n-grams.
-    const supported = matches.length > 0 || (doc.terms.length > 20 && distinctive.length >= 2 && shared.length >= 4);
-    return { category: doc.category, matches, evidence: matches.length ? matches.slice(0, 3) : distinctive.sort((a,b) => b.length - a.length).slice(0, 3), cosine, jaccard, score: 0.7 * cosine + 0.3 * jaccard, supported };
+    // One distinctive fragment is enough to offer a choice, even for a small dictionary.
+    // Still require category-specific evidence instead of filling five unrelated slots.
+    const supported = matches.length > 0 || (distinctive.length >= 1 && shared.length >= 2);
+    // Partial fragments remain selectable, but explicit words are stronger evidence.
+    const score = (0.7 * cosine + 0.3 * jaccard) * (matches.length ? 1 : 0.6);
+    return { category: doc.category, matches, evidence: matches.length ? matches.slice(0, 3) : distinctive.sort((a,b) => b.length - a.length).slice(0, 3), cosine, jaccard, score, supported };
   }).sort((a,b) => b.score - a.score || a.category.id.localeCompare(b.category.id));
-  const eligible = scores.filter(item => item.supported && item.score >= 0.025);
+  const eligible = scores.filter(item => item.supported && (item.matches.length > 0 || item.score >= 0.01));
   const best = eligible[0]?.score || 0;
-  const candidates = eligible.filter(item => item.score >= best * 0.45).slice(0, 3);
+  const candidates = eligible.slice(0, MAX_CATEGORY_CANDIDATES);
   for (const item of candidates) {
     if (!item.matches.length) item.evidence = item.category.keywords
       .map(term => ({ term, value: jaccardSimilarity(features, characterFeatures(term)) }))
