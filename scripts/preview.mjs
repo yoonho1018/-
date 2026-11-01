@@ -8,6 +8,7 @@ const similarity = flatten(await readFile('public/similarity.mjs', 'utf8'));
 const domain = flatten(await readFile('public/domain.mjs', 'utf8'));
 const geography = flatten(await readFile('public/geography.mjs', 'utf8'));
 const maps = flatten(await readFile('public/maps.mjs', 'utf8'));
+const official = flatten(await readFile('public/official-links.mjs', 'utf8'));
 const app = flatten(await readFile('public/app.mjs', 'utf8'));
 const lucide = await readFile('public/vendor/lucide.js', 'utf8');
 const mapCSS = await readFile('public/maps.css', 'utf8');
@@ -23,6 +24,6 @@ html = html.replace('<link rel="stylesheet" href="/style.css">', () => `<style>$
   .replace('<script src="/config.js"></script>', '<script>window.APP_CONFIG = {url:"",key:""};</script>')
   .replace(/  <script defer src="\/vendor\/[^\"]+"><\/script>\n/g, '')
   .replace('  <script type="module" src="/app.mjs"></script>', '')
-  .replace('</body>', () => `<script>${lucide.replace(/<\/script/gi, '<\\/script')}</script><script>${leafletJS}\n${heatJS}</script><script type="module">${keywords}\n${similarity}\n${domain}\n${geography}\n${maps}\n${app}</script></body>`);
+  .replace('</body>', () => `<script>${lucide.replace(/<\/script/gi, '<\\/script')}</script><script>${leafletJS}\n${heatJS}</script><script type="module">${keywords}\n${similarity}\n${domain}\n${geography}\n${maps}\n${official}\n${app}</script></body>`);
 await writeFile('index.html', html);
 console.log('Standalone preview: index.html (demo only, no network required)');

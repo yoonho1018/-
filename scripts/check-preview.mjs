@@ -22,6 +22,13 @@ try {
   await page.getByRole('heading', { name: '체험 제보를 저장했습니다' }).waitFor();
   await page.getByRole('button', { name: '민원 안내 보기', exact: true }).click();
   await page.getByRole('heading', { name: '교통·도로 민원 안내' }).waitFor();
+  assert.equal(await page.getByRole('link', {name:'유성구 온라인민원상담'}).getAttribute('href'), 'https://www.yuseong.go.kr/kor/sub01_02_01_01.do');
+  assert.equal(await page.getByRole('link', {name:'대전시 안전신문고 안내'}).getAttribute('rel'), 'noopener noreferrer');
+  await page.screenshot({path:'tmp/official-guide-desktop.png'});
+  await page.setViewportSize({width:390,height:844});
+  assert.ok(await page.evaluate(() => document.querySelector('#detail').scrollWidth <= document.querySelector('#detail').clientWidth));
+  await page.screenshot({path:'tmp/official-guide-mobile.png'});
+  await page.setViewportSize({width:1440,height:1000});
   await page.getByRole('button', { name: '닫기', exact: true }).click();
   await page.getByRole('button', { name: '우리 동네 현황', exact: true }).click();
   await page.getByRole('heading', { name: '선택 지역 · 분야별 현황' }).waitFor();
@@ -33,6 +40,7 @@ try {
   await page.reload();
   await page.getByText('작성자 해결 확인', { exact: true }).waitFor();
   await page.getByRole('link', { name: '생활불편 제보' }).click();
+  await page.locator('#report-form').waitFor();
   await page.locator('select[name="district"]').selectOption('유성구');
   await page.locator('input[name="dong"]').fill('신성동');
   await page.locator('textarea[name="content"]').fill('하수구에서 악취가 올라와요.');

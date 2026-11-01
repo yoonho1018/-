@@ -701,6 +701,7 @@ input,select,textarea{border-color:#bac9cb;background:#f9fcfc;border-radius:4px}
 @media(max-width:1100px){.report-layout{grid-template-columns:1fr}.support{display:none}.shell{grid-template-columns:195px minmax(0,1fr)}main{padding:28px}}
 @media(max-width:700px){.shell{display:block}main{padding:24px 16px 40px}h1{font-size:24px}.topbar{padding:0 16px}aside{border-bottom-color:#526367}nav a{font-size:10px}.filters{padding:14px 10px}.report-row{padding:18px 10px}.metric-strip{padding:18px 10px}}
 .board-controls{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:24px 0 16px}.board-tabs{display:flex;border-bottom:2px solid #b7c8cb;gap:8px}.board-tabs button{background:transparent;border-radius:0;border-bottom:3px solid transparent}.board-tabs button[aria-pressed=true]{color:#066253;border-bottom-color:#087b70;background:#d2e9e1}.board-controls label{margin:0;min-width:100px}.board-controls select{margin:2px 0 0}.vote-controls{display:flex;gap:6px}.vote-button{min-width:62px;min-height:44px;padding:8px;border:1px solid #a6bbbc;background:#f5f9f9;font-variant-numeric:tabular-nums}.vote-button[aria-pressed=true]{background:#bce7d8;border-color:#087b70;color:#145746}.vote-button[data-vote="-1"][aria-pressed=true]{background:#f5d8df;border-color:#ae5268;color:#803548}.row-actions{flex-wrap:wrap;justify-content:flex-end;max-width:310px}@media(max-width:700px){.board-controls{gap:8px}.board-tabs{gap:0}.board-tabs button{padding:10px;font-size:14px}.row-actions{max-width:none}.vote-controls{margin-right:auto}}
+.official-resources{margin-bottom:28px;border-bottom:1px solid var(--line);padding-bottom:18px}.guide .official-list{list-style:none;padding:0;margin:16px 0}.official-list li{border-bottom:1px solid var(--line);padding:14px 0}.guide .official-list a{display:flex;margin:8px 0;align-items:flex-start;overflow-wrap:anywhere;font-weight:700}.official-list p{font-size:13px;color:var(--muted);margin:0}.official-list .tag{background:#dce5f6;color:#3d5381}
 </style>
   <script>window.APP_CONFIG = {url:"",key:""};</script>
 
@@ -1116,6 +1117,31 @@ function showHeatMap(element, data) {
   };
 }
 
+// Official navigation and page content reviewed on 2026-11-01.
+// Descriptions are routing suggestions, not a determination of legal jurisdiction.
+const OFFICIAL_LINKS_CHECKED = '2026-11-01';
+const cityRequest = { title: '대전시에 바란다 · 국민신문고', url: 'https://www.daejeon.go.kr/drh/DrhContentsHtmlView.do?menuSeq=4769', kind: '민원 창구', description: '대전시 공식 민원 창구입니다. 신청 시 발생 지역과 처리기관을 확인하세요.' };
+const safetyGuide = { title: '대전시 안전신문고 안내', url: 'https://www.daejeon.go.kr/drh/DrhContentsHtmlView.do?menuSeq=4741', kind: '신고 안내', description: '도로·시설물·보행 안전과 생활불편의 신고 경로를 확인하세요.' };
+const environmentGuide = { title: '대전시 환경신문고 안내', url: 'https://www.daejeon.go.kr/drh/DrhContentsHtmlView.do?menuSeq=4775', kind: '신고 안내', description: '악취, 소음·진동, 폐기물 등 환경오염 신고 대상과 방법을 확인하세요.' };
+const localRequest = {
+  '유성구': { title: '유성구 온라인민원상담', url: 'https://www.yuseong.go.kr/kor/sub01_02_01_01.do', kind: '민원 창구', description: '유성구청 민원 메뉴에서 연결되는 온라인 상담 창구입니다.' },
+  '중구': { title: '중구에 바란다', url: 'https://www.djjunggu.go.kr/kr/sub02_03_01.do', kind: '민원 창구', description: '중구청 민원신고센터의 상담 창구입니다.' },
+  '대덕구': { title: '대덕구 1:1 민원상담', url: 'https://www.daedeok.go.kr/dpt/dpt01/DPT0101_cmmMinwonWrite.do?type=0', kind: '민원 창구', description: '대덕구청의 온라인 민원상담 창구입니다.' }
+};
+function officialLinks(report) {
+  const id = report.category_id, links = [];
+  if (id === 'bicycle') links.push({title:'타슈 공식 자주 묻는 질문',url:'https://www.tashu.or.kr/faqList.do',kind:'운영기관 안내',description:'타슈인 경우 이용·반납 안내와 공식 고객센터를 확인하세요. 다른 공유자전거는 해당 운영사에 확인해야 합니다.'});
+  if (report.district === '유성구' && ['odor','noise'].includes(id)) links.push({title:'유성구 기후환경과 업무 안내',url:'https://www.yuseong.go.kr/kor/sub06_03_19_01.do',kind:'관련 부서 안내',description:'생활소음·환경 관리 업무와 직원 안내를 확인할 수 있습니다. 개별 사례의 담당 여부는 기관에 확인하세요.'});
+  if (report.district === '유성구' && id === 'waste') links.push({title:'유성구 폐기물·청소 업무 안내',url:'https://www.yuseong.go.kr/kor/sub06_03_20_01.do',kind:'관련 부서 안내',description:'생활폐기물 처리와 무단배출 관련 업무를 확인할 수 있습니다.'});
+  if (report.district === '중구' && id === 'parking') links.push({title:'중구 불법주정차 스마트폰 신고 안내',url:'https://www.djjunggu.go.kr/kr/sub02_03_13.do',kind:'신고 안내',description:'주정차 주민신고 대상과 제출 요건은 공식 안내에서 확인하세요.'});
+  if (report.district === '대덕구' && ['odor','noise','waste'].includes(id)) links.push({title:'대덕구 환경신문고',url:'https://www.daedeok.go.kr/dpt/dpt01/DPT0101_cmmMinwonWrite.do?type=5',kind:'민원 창구',description:'환경오염 관련 상담·신고 창구입니다. 접수 대상은 해당 페이지에서 확인하세요.'});
+  links.push(['odor','noise','waste'].includes(id) ? environmentGuide : safetyGuide);
+  if (localRequest[report.district]) links.push(localRequest[report.district]);
+  links.push(cityRequest);
+  return links;
+}
+
+
 
 
 
@@ -1375,14 +1401,17 @@ function showSuccess(report) {
   $('#success-stats').onclick = () => { filters = { district: report.district, dong: report.dong, category: '' }; location.hash = 'stats'; };
   $('#again').onclick = renderForm; icons();
 }
-function guideMarkup(category) {
+function officialLinksMarkup(report) {
+  return `<section class="official-resources"><h3>지역·문제별 공식 안내</h3><p class="meta">${escapeHTML(report.district)} · ${escapeHTML(cat(report.category_id)?.name || '')}</p><ul class="official-list">${officialLinks(report).map(link => `<li><span class="tag">${escapeHTML(link.kind)}</span><a href="${escapeHTML(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHTML(link.title)}${icon('external-link')}</a><p>${escapeHTML(link.description)}</p></li>`).join('')}</ul><p class="meta">공식 메뉴·자료 확인: ${OFFICIAL_LINKS_CHECKED}</p><p class="notice">제보 내용과 위치는 외부 기관에 자동 전송되지 않습니다. 실제 신고는 공식 사이트에서 별도로 작성해야 하며 본인인증이 필요할 수 있습니다. 링크가 열리지 않으면 아래 국민신문고에서 발생 지역을 지정해 주세요.</p></section>`;
+}
+function guideMarkup(category, report) {
   const guide = guides.find(g => g.name === category.main);
-  return `<section class="guide"><h3>${escapeHTML(category.main)} 민원 안내</h3><p>${escapeHTML(guide?.body || '')}</p><ul>${(guide?.checklist || []).map(item => `<li>${escapeHTML(item)}</li>`).join('')}</ul><h3>${escapeHTML(category.name)} 추가 안내</h3><p>${escapeHTML(category.extra)}</p><a href="https://www.safetyreport.go.kr/" target="_blank" rel="noopener noreferrer">안전신문고${icon('external-link')}</a><a href="https://www.epeople.go.kr/" target="_blank" rel="noopener noreferrer">국민신문고${icon('external-link')}</a><p class="notice">일반적인 신고 준비 안내입니다. 실제 접수 대상과 제출 요건은 공식 사이트에서 확인해 주세요. 이 버튼은 신고를 자동으로 접수하지 않습니다.</p></section>`;
+  return `<section class="guide">${officialLinksMarkup(report)}<h3>${escapeHTML(category.main)} 민원 안내</h3><p>${escapeHTML(guide?.body || '')}</p><ul>${(guide?.checklist || []).map(item => `<li>${escapeHTML(item)}</li>`).join('')}</ul><h3>${escapeHTML(category.name)} 추가 안내</h3><p>${escapeHTML(category.extra)}</p><a href="https://www.safetyreport.go.kr/" target="_blank" rel="noopener noreferrer">안전신문고${icon('external-link')}</a><a href="https://www.epeople.go.kr/" target="_blank" rel="noopener noreferrer">국민신문고${icon('external-link')}</a><p class="notice">일반적인 신고 준비 안내입니다. 실제 접수 대상과 제출 요건은 공식 사이트에서 확인해 주세요. 이 버튼은 신고를 자동으로 접수하지 않습니다.</p></section>`;
 }
 function showDetail(report, showGuide = false) {
   disposeDetailMap?.(); disposeDetailMap = null;
   const category = cat(report.category_id);
-  $('#detail-content').innerHTML = `<div class="dialog-head"><h2>${escapeHTML(category.name)}</h2><button class="icon" data-close="detail" aria-label="닫기">${icon('x')}</button></div><div class="meta"><span>${escapeHTML(report.district)} · ${escapeHTML(report.dong)}</span><span>${date(report.created_at)}</span></div><div class="detail-body">${escapeHTML(report.content)}</div><button class="secondary" id="toggle-guide" aria-expanded="${showGuide}">${icon('book-open')}민원 안내 ${showGuide ? '접기' : '보기'}</button><div id="guide-content" ${showGuide ? '' : 'hidden'}>${guideMarkup(category)}</div>`;
+  $('#detail-content').innerHTML = `<div class="dialog-head"><h2>${escapeHTML(category.name)}</h2><button class="icon" data-close="detail" aria-label="닫기">${icon('x')}</button></div><div class="meta"><span>${escapeHTML(report.district)} · ${escapeHTML(report.dong)}</span><span>${date(report.created_at)}</span></div><div class="detail-body">${escapeHTML(report.content)}</div><button class="secondary" id="toggle-guide" aria-expanded="${showGuide}">${icon('book-open')}민원 안내 ${showGuide ? '접기' : '보기'}</button><div id="guide-content" ${showGuide ? '' : 'hidden'}>${guideMarkup(category, report)}</div>`;
   $('#toggle-guide').onclick = event => { const show = $('#guide-content').hidden; $('#guide-content').hidden = !show; event.currentTarget.setAttribute('aria-expanded', String(show)); event.currentTarget.innerHTML = `${icon('book-open')}민원 안내 ${show ? '접기' : '보기'}`; icons(); };
   const locationSection = document.createElement('section'); locationSection.className = 'location-detail';
   const hasLocation = validCoordinates(report.latitude, report.longitude);

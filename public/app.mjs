@@ -1,6 +1,7 @@
 import { DISTRICTS, GROUPS, GUIDES, CATEGORIES, classify, validateReport, aggregate } from './domain.mjs';
 import { validCoordinates, validateLocation, mapSummary } from './geography.mjs';
 import { createLocationPicker, showLocationMap, showHeatMap } from './maps.mjs';
+import { officialLinks, OFFICIAL_LINKS_CHECKED } from './official-links.mjs';
 
 const $ = selector => document.querySelector(selector);
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -258,14 +259,17 @@ function showSuccess(report) {
   $('#success-stats').onclick = () => { filters = { district: report.district, dong: report.dong, category: '' }; location.hash = 'stats'; };
   $('#again').onclick = renderForm; icons();
 }
-function guideMarkup(category) {
+function officialLinksMarkup(report) {
+  return `<section class="official-resources"><h3>지역·문제별 공식 안내</h3><p class="meta">${escapeHTML(report.district)} · ${escapeHTML(cat(report.category_id)?.name || '')}</p><ul class="official-list">${officialLinks(report).map(link => `<li><span class="tag">${escapeHTML(link.kind)}</span><a href="${escapeHTML(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHTML(link.title)}${icon('external-link')}</a><p>${escapeHTML(link.description)}</p></li>`).join('')}</ul><p class="meta">공식 메뉴·자료 확인: ${OFFICIAL_LINKS_CHECKED}</p><p class="notice">제보 내용과 위치는 외부 기관에 자동 전송되지 않습니다. 실제 신고는 공식 사이트에서 별도로 작성해야 하며 본인인증이 필요할 수 있습니다. 링크가 열리지 않으면 아래 국민신문고에서 발생 지역을 지정해 주세요.</p></section>`;
+}
+function guideMarkup(category, report) {
   const guide = guides.find(g => g.name === category.main);
-  return `<section class="guide"><h3>${escapeHTML(category.main)} 민원 안내</h3><p>${escapeHTML(guide?.body || '')}</p><ul>${(guide?.checklist || []).map(item => `<li>${escapeHTML(item)}</li>`).join('')}</ul><h3>${escapeHTML(category.name)} 추가 안내</h3><p>${escapeHTML(category.extra)}</p><a href="https://www.safetyreport.go.kr/" target="_blank" rel="noopener noreferrer">안전신문고${icon('external-link')}</a><a href="https://www.epeople.go.kr/" target="_blank" rel="noopener noreferrer">국민신문고${icon('external-link')}</a><p class="notice">일반적인 신고 준비 안내입니다. 실제 접수 대상과 제출 요건은 공식 사이트에서 확인해 주세요. 이 버튼은 신고를 자동으로 접수하지 않습니다.</p></section>`;
+  return `<section class="guide">${officialLinksMarkup(report)}<h3>${escapeHTML(category.main)} 민원 안내</h3><p>${escapeHTML(guide?.body || '')}</p><ul>${(guide?.checklist || []).map(item => `<li>${escapeHTML(item)}</li>`).join('')}</ul><h3>${escapeHTML(category.name)} 추가 안내</h3><p>${escapeHTML(category.extra)}</p><a href="https://www.safetyreport.go.kr/" target="_blank" rel="noopener noreferrer">안전신문고${icon('external-link')}</a><a href="https://www.epeople.go.kr/" target="_blank" rel="noopener noreferrer">국민신문고${icon('external-link')}</a><p class="notice">일반적인 신고 준비 안내입니다. 실제 접수 대상과 제출 요건은 공식 사이트에서 확인해 주세요. 이 버튼은 신고를 자동으로 접수하지 않습니다.</p></section>`;
 }
 function showDetail(report, showGuide = false) {
   disposeDetailMap?.(); disposeDetailMap = null;
   const category = cat(report.category_id);
-  $('#detail-content').innerHTML = `<div class="dialog-head"><h2>${escapeHTML(category.name)}</h2><button class="icon" data-close="detail" aria-label="닫기">${icon('x')}</button></div><div class="meta"><span>${escapeHTML(report.district)} · ${escapeHTML(report.dong)}</span><span>${date(report.created_at)}</span></div><div class="detail-body">${escapeHTML(report.content)}</div><button class="secondary" id="toggle-guide" aria-expanded="${showGuide}">${icon('book-open')}민원 안내 ${showGuide ? '접기' : '보기'}</button><div id="guide-content" ${showGuide ? '' : 'hidden'}>${guideMarkup(category)}</div>`;
+  $('#detail-content').innerHTML = `<div class="dialog-head"><h2>${escapeHTML(category.name)}</h2><button class="icon" data-close="detail" aria-label="닫기">${icon('x')}</button></div><div class="meta"><span>${escapeHTML(report.district)} · ${escapeHTML(report.dong)}</span><span>${date(report.created_at)}</span></div><div class="detail-body">${escapeHTML(report.content)}</div><button class="secondary" id="toggle-guide" aria-expanded="${showGuide}">${icon('book-open')}민원 안내 ${showGuide ? '접기' : '보기'}</button><div id="guide-content" ${showGuide ? '' : 'hidden'}>${guideMarkup(category, report)}</div>`;
   $('#toggle-guide').onclick = event => { const show = $('#guide-content').hidden; $('#guide-content').hidden = !show; event.currentTarget.setAttribute('aria-expanded', String(show)); event.currentTarget.innerHTML = `${icon('book-open')}민원 안내 ${show ? '접기' : '보기'}`; icons(); };
   const locationSection = document.createElement('section'); locationSection.className = 'location-detail';
   const hasLocation = validCoordinates(report.latitude, report.longitude);
