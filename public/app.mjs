@@ -60,6 +60,12 @@ function updateAccount() {
   icons();
 }
 async function init() {
+  const authCallbackError = new URLSearchParams(location.hash.slice(1)).get('error');
+  if (authCallbackError) {
+    history.replaceState(null, '', location.pathname + location.search);
+    $('#auth-message').textContent = '인증 링크가 만료되었거나 유효하지 않습니다. 이메일을 입력하고 비밀번호 찾기를 다시 눌러 주세요.';
+    $('#auth').showModal();
+  }
   if (demo) {
     $('#mode').textContent = '체험 모드 · 예시 데이터 포함 · 이 브라우저에만 저장되며 실제 DB에는 등록되지 않습니다.';
   } else {
@@ -70,12 +76,21 @@ async function init() {
       client.auth.onAuthStateChange((_event, session) => {
         const changed = user?.id !== session?.user?.id;
         user = session?.user || null; updateAccount();
+        if (_event === 'PASSWORD_RECOVERY') {
+          try { sessionStorage.setItem('password-recovery', '1'); } catch { /* Optional reload recovery. */ }
+          setTimeout(openPasswordReset, 0);
+        }
+        if (_event === 'SIGNED_OUT') {
+          try { sessionStorage.removeItem('password-recovery'); } catch { /* Storage may be restricted. */ }
+          $('#password-reset').close();
+        }
         // Data requests must run outside Supabase's synchronous auth callback.
         if (changed && ['mine', 'board'].includes(pageName())) setTimeout(() => render(), 0);
       });
       const sessionResult = await client.auth.getSession();
       if (sessionResult.error) throw sessionResult.error;
       user = sessionResult.data.session?.user || null; updateAccount();
+      try { if (user && sessionStorage.getItem('password-recovery')) openPasswordReset(); } catch { /* Optional reload recovery. */ }
       const [categoryResult, guideResult] = await Promise.all([
         client.from('categories').select('*').order('sort_order'), client.from('main_guides').select('*')
       ]);
@@ -332,6 +347,45 @@ $('#account').onclick = async () => {
   } catch (error) { toast(authError(error)); }
 };
 let signupMode = false;
+let resetRequestAt = 0;
+const forgotButton = document.createElement('button');
+forgotButton.type = 'button'; forgotButton.id = 'forgot-password'; forgotButton.className = 'quiet'; forgotButton.textContent = '비밀번호 찾기';
+$('#auth-form .actions').append(forgotButton);
+forgotButton.onclick = async () => {
+  const form = $('#auth-form');
+  if (!form.email.reportValidity()) return;
+  if (Date.now() - resetRequestAt < 60000) { $('#auth-message').textContent = '메일을 요청한 뒤 1분 후 다시 시도해 주세요.'; return; }
+  const buttons = form.querySelectorAll('button'); buttons.forEach(b => b.disabled = true);
+  try {
+    if (!client) throw new Error('온라인 사이트에서 다시 시도해 주세요.');
+    const result = await client.auth.resetPasswordForEmail(form.email.value.trim(), { redirectTo: location.origin });
+    if (result.error) throw result.error;
+    resetRequestAt = Date.now();
+    $('#auth-message').textContent = '재설정 메일을 요청했습니다. 가입된 이메일이라면 받은편지함과 스팸함을 확인해 주세요. 메일의 링크에서 새 비밀번호를 설정할 수 있습니다.';
+  } catch (error) { $('#auth-message').textContent = authError(error); }
+  finally { buttons.forEach(b => b.disabled = false); }
+};
+function openPasswordReset() {
+  $('#auth').close();
+  if (!$('#password-reset').open) $('#password-reset').showModal();
+}
+$('#password-reset-form').onsubmit = async event => {
+  event.preventDefault();
+  const form = event.target;
+  if (!form.reportValidity()) return;
+  if (form.newPassword.value !== form.repeatPassword.value) { $('#reset-message').textContent = '비밀번호가 서로 다릅니다.'; return; }
+  const buttons = form.querySelectorAll('button'); buttons.forEach(b => b.disabled = true);
+  $('#reset-message').textContent = '';
+  try {
+    if (!client || !user) throw new Error('재설정 링크가 만료되었습니다. 비밀번호 찾기에서 새 메일을 요청해 주세요.');
+    const result = await client.auth.updateUser({ password: form.newPassword.value });
+    if (result.error) throw result.error;
+    try { sessionStorage.removeItem('password-recovery'); } catch { /* Storage may be restricted. */ }
+    form.reset(); $('#password-reset').close(); toast('비밀번호를 변경했습니다. 다음 로그인부터 새 비밀번호를 사용해 주세요.');
+  } catch (error) { $('#reset-message').textContent = authError(error); }
+  finally { buttons.forEach(b => b.disabled = false); }
+};
+$('#password-reset').addEventListener('close', () => { $('#password-reset-form').reset(); $('#reset-message').textContent = ''; });
 function authError(error) {
   const messages = {
     invalid_credentials: '이메일 또는 비밀번호를 확인해 주세요.',

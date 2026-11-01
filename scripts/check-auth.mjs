@@ -11,12 +11,14 @@ try {
     const pathname = new URL(route.request().url()).pathname;
     if (pathname === '/config.js') return route.fulfill({ contentType: 'text/javascript', body: 'window.APP_CONFIG={url:"https://test.supabase.co",key:"sb_publishable_test"};' });
     if (pathname === '/vendor/supabase.js') return route.fulfill({ contentType: 'text/javascript', body: `
-      window.calls = {signup:0,resend:0};
+      window.calls = {signup:0,resend:0,recovery:0,update:0};
       let callback;
       const account = {id:'test-user'};
       window.supabase = {createClient: () => ({
         auth: {
-          onAuthStateChange: cb => {callback=cb},
+          onAuthStateChange: cb => {callback=cb; window.recover = () => callback('PASSWORD_RECOVERY',{user:account})},
+          resetPasswordForEmail: async (email,options) => {window.calls.recovery++; window.resetRequest={email,options}; return {}},
+          updateUser: async () => {window.calls.update++; return {data:{user:account}}},
           getSession: async () => ({data:{session:null}}),
           signUp: async () => {window.calls.signup++; return {data:{session:null}}},
           signInWithPassword: async ({password}) => {
@@ -68,6 +70,29 @@ try {
   assert.equal(await page.locator('#auth').isVisible(), false);
   await page.locator('#account').click();
   await page.getByRole('button',{name:'로그인',exact:true}).waitFor();
+  await page.locator('#account').click();
+  await page.locator('[name=email]').fill('student@example.com');
+  await page.locator('#forgot-password').click();
+  await page.getByText('재설정 메일을 요청했습니다.',{exact:false}).waitFor();
+  assert.equal(await page.evaluate(() => window.calls.recovery),1);
+  assert.equal(await page.evaluate(() => window.resetRequest.options.redirectTo),'http://auth.test');
+  await page.locator('#forgot-password').click();
+  assert.equal(await page.evaluate(() => window.calls.recovery),1);
+  await page.evaluate(() => window.recover());
+  await page.locator('#password-reset[open]').waitFor();
+  await page.locator('[name=newPassword]').fill('new-test-password');
+  await page.locator('[name=repeatPassword]').fill('different-password');
+  await page.getByRole('button',{name:'비밀번호 변경',exact:true}).click();
+  await page.locator('#reset-message').getByText('비밀번호가 서로 다릅니다.').waitFor();
+  assert.equal(await page.evaluate(() => window.calls.update),0);
+  await page.locator('[name=repeatPassword]').fill('new-test-password');
+  await page.getByRole('button',{name:'비밀번호 변경',exact:true}).click();
+  await page.locator('#password-reset[open]').waitFor({state:'detached'});
+  assert.equal(await page.evaluate(() => window.calls.update),1);
+  assert.equal(await page.evaluate(() => sessionStorage.getItem('password-recovery')),null);
+  await page.goto('http://auth.test/#error=access_denied&error_code=otp_expired');
+  await page.reload();
+  await page.getByText('인증 링크가 만료되었거나 유효하지 않습니다.',{exact:false}).waitFor();
   assert.deepEqual(errors, []);
   console.log('PASS: mocked auth signup, confirmation, resend, errors, login despite missing DB tables, logout, mobile overflow. No real Supabase account was used.');
 } finally { await browser.close(); }
