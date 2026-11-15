@@ -15,7 +15,7 @@ try {
   await page.locator('input[name="dong"]').fill('신성동');
   await page.locator('textarea[name="content"]').fill('집 앞 도로에 큰 구멍이 생겼어요.');
   await page.getByRole('button', { name: '분류 확인하기' }).click();
-  assert.equal(await page.locator('input[name="recommended-category"]').count(), 1);
+  assert.equal(await page.locator('input[name="recommended-category"]:not([value="other"])').count(), 1);
   assert.equal(await page.locator('#submit-report').isDisabled(), true);
   await page.locator('input[name="recommended-category"][value="road"]').check();
   await page.getByRole('button', { name: '제보 등록하기' }).click();
@@ -45,7 +45,7 @@ try {
   await page.locator('input[name="dong"]').fill('신성동');
   await page.locator('textarea[name="content"]').fill('하수구에서 악취가 올라와요.');
   await page.getByRole('button', { name: '분류 확인하기' }).click();
-  assert.equal(await page.locator('input[name="recommended-category"]').count(), 2);
+  assert.equal(await page.locator('input[name="recommended-category"]:not([value="other"])').count(), 2);
   assert.equal(await page.locator('#category-select').count(), 0);
   assert.equal(await page.locator('#submit-report').isDisabled(), true);
   await page.locator('input[name="recommended-category"][value="odor"]').check();
@@ -53,11 +53,11 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: 'tmp/mobile.png', fullPage: true });
   await page.locator('textarea[name="content"]').fill('오늘 학교에서 수학을 공부했어요.');
-  assert.equal(await page.locator('input[name="recommended-category"]').count(), 0);
+  assert.equal(await page.locator('input[name="recommended-category"]:not([value="other"])').count(), 0);
   assert.equal(await page.locator('#submit-report').isDisabled(), true);
   await page.getByRole('button', { name: '분류 확인하기' }).click();
   await page.getByText('관련 분류를 찾기 어려워요', { exact: true }).waitFor();
-  assert.equal(await page.locator('input[name="recommended-category"]').count(), 0);
+  assert.equal(await page.locator('input[name="recommended-category"]:not([value="other"])').count(), 0);
   for (const hash of ['report','board','stats','mine']) {
     await page.goto(pathToFileURL(path.resolve('index.html')).href + '#' + hash);
     await page.locator('h1').waitFor();

@@ -30,6 +30,7 @@ export function createLocationPicker(element, output) {
   map.on('click', e => choose(e.latlng));
   return {
     read: () => point || {latitude: null, longitude: null},
+    restore: (lat,lng) => { if (validCoordinates(lat,lng)) { map.setView([lat,lng],16); choose({lat,lng}); } },
     center: () => choose(map.getCenter()),
     clear: () => { point = null; if (marker) { marker.remove(); marker = null; } output.textContent = '위치 미선택'; },
     district: name => { if (DISTRICT_CENTERS[name]) map.setView(DISTRICT_CENTERS[name], 14, {animate:false}); },

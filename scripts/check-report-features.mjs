@@ -1,0 +1,47 @@
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+
+const require = createRequire(process.env.PLAYWRIGHT_PACKAGE_ROOT + '/package.json');
+const { chromium } = require('playwright');
+const browser = await chromium.launch({headless:true,channel:'msedge'});
+try {
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(pathToFileURL(path.resolve('index.html')).href);
+  await page.locator('[name=district]').selectOption('유성구');
+  await page.locator('[name=dong]').fill('신성동');
+  await page.locator('[name=content]').fill('모두 함께 살펴봐야 할 일이 있어요.');
+  await page.locator('[name=photo]').setInputFiles('public/assets/street.jpg');
+  await page.locator('.photo-preview img').waitFor();
+  await page.locator('#pick-center').click();
+  await page.locator('#analyze').click();
+  await page.locator('[value=other]').check();
+  await page.locator('#submit-report').click();
+  await page.locator('.success-title').waitFor();
+  await page.locator('a[data-page=mine]').click();
+  await page.locator('[data-detail]').click();
+  assert.ok(await page.locator('#detail .report-photo').evaluate(el => el.nextElementSibling.classList.contains('detail-body')));
+  await page.getByRole('button',{name:'상태 변경 알림 받기'}).click();
+  await page.getByRole('button',{name:'알림 받는 중 · 해제'}).waitFor();
+  await page.locator('[data-close=detail]').click();
+  await page.getByRole('button',{name:'수정',exact:true}).click();
+  assert.ok((await page.locator('#location-output').innerText()).includes('선택 위치'));
+  await page.locator('[name=dong]').fill('궁동');
+  await page.locator('#submit-report').click();
+  await page.locator('[data-status]').click();
+  await page.locator('a[data-page=alerts]').click();
+  await page.getByRole('button',{name:/궁동.*해결 확인/}).click();
+  await page.locator('#detail .report-photo').waitFor();
+  await page.locator('[data-close=detail]').click();
+  await page.locator('a[data-page=mine]').click();
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button',{name:'삭제',exact:true}).click();
+  await page.locator('.empty').waitFor();
+  await page.reload();
+  assert.equal(await page.locator('[data-detail]').count(),0);
+  assert.deepEqual(errors,[]);
+  console.log('Photo, fallback, edit, notification and delete flow passed.');
+} finally { await browser.close(); }

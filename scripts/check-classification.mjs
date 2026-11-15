@@ -16,7 +16,7 @@ try {
   const content=page.locator('textarea[name="content"]');
   await content.fill('불법적인 포스터들이 많이 붙어 있어요. 계속 방치되면 보기에도 좋지 않고 더욱이 어린 아이들이 보게 된다면 더 안 좋을 것 같아요. 빠른 수거 부탁드립니다. 도로 주변이 많이 지저분한 것 같습니다.');
   await page.locator('#analyze').click();
-  const choices=page.locator('input[name="recommended-category"]');
+  const choices=page.locator('input[name="recommended-category"]:not([value="other"])');
   assert.equal(await choices.first().getAttribute('value'),'ad');
   assert.ok(await choices.count()<=5);
   assert.equal(await page.locator('#submit-report').isDisabled(),true);

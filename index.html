@@ -702,6 +702,8 @@ input,select,textarea{border-color:#bac9cb;background:#f9fcfc;border-radius:4px}
 @media(max-width:700px){.shell{display:block}main{padding:24px 16px 40px}h1{font-size:24px}.topbar{padding:0 16px}aside{border-bottom-color:#526367}nav a{font-size:10px}.filters{padding:14px 10px}.report-row{padding:18px 10px}.metric-strip{padding:18px 10px}}
 .board-controls{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:24px 0 16px}.board-tabs{display:flex;border-bottom:2px solid #b7c8cb;gap:8px}.board-tabs button{background:transparent;border-radius:0;border-bottom:3px solid transparent}.board-tabs button[aria-pressed=true]{color:#066253;border-bottom-color:#087b70;background:#d2e9e1}.board-controls label{margin:0;min-width:100px}.board-controls select{margin:2px 0 0}.vote-controls{display:flex;gap:6px}.vote-button{min-width:62px;min-height:44px;padding:8px;border:1px solid #a6bbbc;background:#f5f9f9;font-variant-numeric:tabular-nums}.vote-button[aria-pressed=true]{background:#bce7d8;border-color:#087b70;color:#145746}.vote-button[data-vote="-1"][aria-pressed=true]{background:#f5d8df;border-color:#ae5268;color:#803548}.row-actions{flex-wrap:wrap;justify-content:flex-end;max-width:310px}@media(max-width:700px){.board-controls{gap:8px}.board-tabs{gap:0}.board-tabs button{padding:10px;font-size:14px}.row-actions{max-width:none}.vote-controls{margin-right:auto}}
 .official-resources{margin-bottom:28px;border-bottom:1px solid var(--line);padding-bottom:18px}.guide .official-list{list-style:none;padding:0;margin:16px 0}.official-list li{border-bottom:1px solid var(--line);padding:14px 0}.guide .official-list a{display:flex;margin:8px 0;align-items:flex-start;overflow-wrap:anywhere;font-weight:700}.official-list p{font-size:13px;color:var(--muted);margin:0}.official-list .tag{background:#dce5f6;color:#3d5381}
+
+.report-photo{display:block;width:auto;max-width:100%;max-height:360px;object-fit:contain;margin:12px 0;border-radius:10px}.report-row .report-photo{max-height:175px}.alert-row{display:block;margin:8px 0;text-align:left}.photo-preview{max-width:100%}
 </style>
   <script>window.APP_CONFIG = {url:"",key:""};</script>
 
@@ -716,6 +718,7 @@ input,select,textarea{border-color:#bac9cb;background:#f9fcfc;border-radius:4px}
       <a href="#stats" data-page="stats"><i data-lucide="chart-no-axes-combined"></i>지역 통계</a>
       <a href="#map" data-page="map"><i data-lucide="map"></i>문제 지도</a>
       <a href="#mine" data-page="mine"><i data-lucide="notebook-pen"></i>내 제보</a>
+      <a href="#alerts" data-page="alerts"><i data-lucide="bell"></i>관심 제보 알림</a>
     </nav><div class="sidebar-bottom"><span class="dot"></span>대전광역시 생활불편 기록<br><small>시민이 남긴 제보를 모읍니다.</small></div></aside>
     <main id="main" tabindex="-1"></main>
   </div>
@@ -1002,7 +1005,7 @@ const CATEGORIES = [
   { id: 'accessibility', main: '교통·도로', name: '이동약자 통행 장애', keywords: ['휠체어', '유모차', '경사로', '보도 턱', '높은 턱', '턱이 높', '휠체어 진입', '장애인 통행', '시각장애인', '이동약자', '경사로가 막', '점자블록을 막', '점자블록 위', '휠체어가 못', '유모차가 못', '보행약자'], extra: '점자블록, 경사로, 보도 턱 등 어떤 시설에서 통행이 어려운지 기록해 주세요. 이용자의 얼굴이나 장애 관련 개인정보는 공개하지 마세요.' }
 ].map(category => ({ ...category, keywords: KEYWORDS[category.id] || category.keywords }));
 function classify(text, categories = CATEGORIES) {
-  return rankCategories(text, categories);
+  return rankCategories(text, categories.filter(c => c.id !== 'other'));
 }
 function validateReport({ content, district, dong, category_id }, categories = CATEGORIES) {
   if (!DISTRICTS.includes(district)) return '발생한 구를 선택해 주세요.';
@@ -1095,6 +1098,7 @@ function createLocationPicker(element, output) {
   map.on('click', e => choose(e.latlng));
   return {
     read: () => point || {latitude: null, longitude: null},
+    restore: (lat,lng) => { if (validCoordinates(lat,lng)) { map.setView([lat,lng],16); choose({lat,lng}); } },
     center: () => choose(map.getCenter()),
     clear: () => { point = null; if (marker) { marker.remove(); marker = null; } output.textContent = '위치 미선택'; },
     district: name => { if (DISTRICT_CENTERS[name]) map.setView(DISTRICT_CENTERS[name], 14, {animate:false}); },
@@ -1159,7 +1163,8 @@ const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':
 const icon = name => `<i data-lucide="${name}"></i>`;
 const icons = () => window.lucide?.createIcons();
 const STORAGE = 'dongne-reports-v1';
-let categories = CATEGORIES, guides = GUIDES, client = null, user = null, connected = false;
+const otherCategory = { id:'other', main:'생활', name:'기타 생활불편', keywords:[], extra:'발생 장소와 상황을 정리해 지역 민원 창구에 문의하세요.' };
+let categories = [...CATEGORIES, otherCategory], guides = GUIDES, client = null, user = null, connected = false;
 let reports = [], page = 0, viewToken = 0, candidate = null;
 let recommendations = [];
 let boardTab = 'all', boardSort = 'latest', voteBusy = false;
@@ -1205,7 +1210,7 @@ function saveLocal(items) {
   try { localStorage.setItem(STORAGE, JSON.stringify(items)); }
   catch { toast('브라우저 저장이 제한되어 이번에 연 화면에서만 기록을 유지합니다.'); }
 }
-function pageName() { return ['report', 'board', 'stats', 'mine', 'map'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'report'; }
+function pageName() { return ['report', 'board', 'stats', 'mine', 'map','alerts'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'report'; }
 const options = (items, selected, empty = '') => `${empty ? `<option value="">${empty}</option>` : ''}${items.map(v => `<option value="${escapeHTML(v)}" ${v === selected ? 'selected' : ''}>${escapeHTML(v)}</option>`).join('')}`;
 function updateAccount() {
   $('#account').innerHTML = `${icon(user ? 'log-out' : 'user-round')}<span>${user ? '로그아웃' : demo ? '체험 사용자' : '로그인'}</span>`;
@@ -1237,7 +1242,7 @@ async function init() {
           $('#password-reset').close();
         }
         // Data requests must run outside Supabase's synchronous auth callback.
-        if (changed && ['mine', 'board'].includes(pageName())) setTimeout(() => render(), 0);
+        if (changed && ['mine', 'board','alerts'].includes(pageName())) setTimeout(() => render(), 0);
       });
       const sessionResult = await client.auth.getSession();
       if (sessionResult.error) throw sessionResult.error;
@@ -1299,6 +1304,7 @@ async function render() {
   candidate = null;
   if (current === 'report') { renderForm(); return; }
   if (current === 'map') { await renderMapPage(token); return; }
+  if (current === 'alerts') { await renderAlerts(token); return; }
   const mine = current === 'mine';
   $('#main').innerHTML = intro(current === 'stats' ? '우리 동네, 어떤 일이 있나요?' : mine ? '내가 남긴 동네기록' : '우리 동네 게시판', current === 'stats' ? '등록된 제보를 지역과 분야별로 살펴보세요. 공식 민원 통계가 아닙니다.' : mine ? '내 제보를 확인하고 해결 여부를 기록하세요.' : '이웃들이 발견한 생활 속 불편을 함께 확인하세요.') + filterMarkup(current !== 'stats') + '<div id="results" class="loading">기록을 불러오는 중…</div>';
   if (current === 'board') {
@@ -1318,6 +1324,14 @@ async function render() {
     $('#results').innerHTML = `<p class="count-label">${demo ? '체험 기록' : '전체'} ${result.count}건</p><div class="list">${reports.length ? reports.map(r => rowMarkup(r, mine)).join('') : `<div class="empty">${icon('inbox')}<p>${current === 'board' && boardTab === 'popular' ? '추천 5개 이상 받은 글이 아직 없습니다.' : '아직 등록된 제보가 없습니다.'}</p><a href="#report">첫 제보 남기기</a></div>`}</div><div class="pager"><button class="secondary" id="prev" ${page === 0 ? 'disabled' : ''} aria-label="이전 페이지">${icon('chevron-left')}</button><span>${page + 1} / ${Math.max(1, Math.ceil(result.count / PAGE_SIZE))}</span><button class="secondary" id="next" ${(page + 1) * PAGE_SIZE >= result.count ? 'disabled' : ''} aria-label="다음 페이지">${icon('chevron-right')}</button></div>`;
     $('#prev').onclick = () => { page--; render(); }; $('#next').onclick = () => { page++; render(); };
     document.querySelectorAll('[data-detail]').forEach(button => button.onclick = () => showDetail(reports.find(r => r.id === button.dataset.detail)));
+    if (mine) document.querySelectorAll('[data-detail]').forEach(button => {
+      const report = reports.find(r => r.id === button.dataset.detail);
+      for (const [label, action] of [['수정', () => renderForm(report)], ['삭제', () => deleteReport(report)]]) {
+        const control = document.createElement('button'); control.className = 'secondary'; control.textContent = label;
+        control.onclick = action; button.parentElement.append(control);
+      }
+    });
+    hydratePhotos();
     document.querySelectorAll('[data-status]').forEach(button => button.onclick = () => changeStatus(reports.find(r => r.id === button.dataset.status), button));
     document.querySelectorAll('[data-vote]').forEach(button => button.onclick = () => castVote(button.dataset.report, Number(button.dataset.vote)));
     icons();
@@ -1325,7 +1339,7 @@ async function render() {
 }
 function rowMarkup(r, mine) {
   const category = cat(r.category_id);
-  return `<article class="report-row"><div><div class="meta"><span>${escapeHTML(r.district)} · ${escapeHTML(r.dong)}</span><span>${date(r.created_at)}</span></div><p>${escapeHTML(r.content.length > 100 ? r.content.slice(0,100) + '…' : r.content)}</p><div class="meta"><span>${escapeHTML(category?.main)} / ${escapeHTML(category?.name)}</span><span class="tag ${r.status === 'resolved' ? 'resolved' : ''}">${r.status === 'resolved' ? '작성자 해결 확인' : '등록됨'}</span></div></div><div class="row-actions">${voteMarkup(r)}<button class="secondary" data-detail="${escapeHTML(r.id)}">상세·민원 안내${icon('arrow-up-right')}</button>${mine ? `<button class="icon secondary" data-status="${escapeHTML(r.id)}" title="${r.status === 'resolved' ? '미해결로 변경' : '해결 완료로 변경'}" aria-label="${r.status === 'resolved' ? '미해결로 변경' : '해결 완료로 변경'}">${icon(r.status === 'resolved' ? 'rotate-ccw' : 'check')}</button>` : ''}</div></article>`;
+  return `<article class="report-row"><div><div class="meta"><span>${escapeHTML(r.district)} · ${escapeHTML(r.dong)}</span><span>${date(r.created_at)}</span></div>${photoMarkup(r)}<p>${escapeHTML(r.content.length > 100 ? r.content.slice(0,100) + '…' : r.content)}</p><div class="meta"><span>${escapeHTML(category?.main)} / ${escapeHTML(category?.name)}</span><span class="tag ${r.status === 'resolved' ? 'resolved' : ''}">${r.status === 'resolved' ? '작성자 해결 확인' : '등록됨'}</span></div></div><div class="row-actions">${voteMarkup(r)}<button class="secondary" data-detail="${escapeHTML(r.id)}">상세·민원 안내${icon('arrow-up-right')}</button>${mine ? `<button class="icon secondary" data-status="${escapeHTML(r.id)}" title="${r.status === 'resolved' ? '미해결로 변경' : '해결 완료로 변경'}" aria-label="${r.status === 'resolved' ? '미해결로 변경' : '해결 완료로 변경'}">${icon(r.status === 'resolved' ? 'rotate-ccw' : 'check')}</button>` : ''}</div></article>`;
 }
 
 function voteMarkup(r) {
@@ -1361,10 +1375,11 @@ async function castVote(id, direction) {
   }
 }
 
-function renderForm() {
+function renderForm(edit = null) {
   candidate = null; recommendations = [];
   $('#main').innerHTML = intro('작은 불편, 함께 남기는 변화', '우리 동네에서 발견한 문제를 기록해 주세요.') + `<div class="report-layout"><form id="report-form"><section class="section"><div class="section-title"><span class="step">1</span><h2>어디에서 발생했나요?</h2></div><p class="meta">대전광역시</p><div class="fields"><label>구<select name="district" required>${options(DISTRICTS, '', '구 선택')}</select></label><label>동<input name="dong" required maxlength="30" placeholder="예: 신성동"></label></div></section><section class="section"><div class="section-title"><span class="step">2</span><h2>어떤 불편을 발견했나요?</h2></div><label>문제 내용<textarea name="content" minlength="10" maxlength="1000" required placeholder="예: 집 앞 도로에 큰 구멍이 생겼어요. 차량이 지나갈 때 위험해 보여요."></textarea></label><div class="field-foot"><span>이름·연락처 등 개인정보는 적지 마세요.</span><span id="length">0 / 1,000</span></div><button type="button" id="analyze" class="secondary wide">${icon('scan-text')}분류 확인하기</button><div id="classification"></div><p id="form-error" class="form-error" role="alert"></p><button type="submit" id="submit-report" class="primary wide" disabled>${icon('send')}제보 등록하기</button></section></form><section class="support"><h3>분야별 동네기록</h3><ul class="support-list"><li>${icon('route')}<div>교통·도로<small>타슈·킥보드, 도로, 보행 장애</small></div></li><li>${icon('leaf')}<div>환경<small>쓰레기, 악취, 하수구</small></div></li><li>${icon('lamp-street')}<div>공공시설<small>가로등, 공원, 시설물</small></div></li><li>${icon('volume-2')}<div>생활<small>소음, 불법 광고물</small></div></li></ul><p class="notice">제보는 게시판에 공개됩니다. 공식 신고는 등록 후 민원 안내에서 별도로 진행해 주세요.</p></section></div>`;
   const form = $('#report-form');
+  const photo = attachPhotoField(form,edit);
   const locationFields = document.createElement('div'); locationFields.className = 'location-fields';
   locationFields.innerHTML = `<label>상세 장소 (선택)<input name="place_text" maxlength="160" placeholder="예: 신성동 주민센터 정문 맞은편 보행로"></label><h3>발생 위치 (선택)</h3><p class="location-note">선택한 위치와 장소 설명은 게시글에 공개됩니다. 집 내부나 개인 주소 대신 문제가 있는 공공장소를 표시해 주세요. 구·동은 직접 확인해 입력해 주세요.</p><div id="location-picker" class="map-surface" role="region" aria-label="제보 위치 선택 지도"></div><div class="map-toolbar"><p id="location-output" role="status">위치 미선택</p><div class="map-actions"><button type="button" id="pick-center" class="secondary">${icon('map-pin')}중앙에 위치 지정</button><button type="button" id="clear-location" class="icon secondary" aria-label="선택 위치 지우기" title="선택 위치 지우기">${icon('x')}</button></div></div>`;
   form.querySelector('.section').append(locationFields);
@@ -1383,9 +1398,23 @@ function renderForm() {
     $('#classification').innerHTML = recommendations.length
       ? `<fieldset class="recommendations"><legend>내 상황에 맞는 분류</legend><p class="meta">관련도가 높은 순서로 최대 5개를 보여드려요. 내용을 비교하고 가장 알맞은 분류를 선택해 주세요.</p>${result.candidates.map((item, i) => `<label class="recommendation"><input type="radio" name="recommended-category" value="${escapeHTML(item.category.id)}"><span class="recommendation-body"><span class="recommendation-top"><strong>${escapeHTML(item.category.name)}</strong><span class="rank">${i + 1}순위</span></span><span class="meta">${escapeHTML(item.category.main)}</span><span class="evidence">${item.matches.length ? '일치 표현' : '비슷한 표현'}: ${escapeHTML(item.evidence.join(', '))}</span></span></label>`).join('')}</fieldset>`
       : '<div class="classification"><strong>관련 분류를 찾기 어려워요</strong><p>문제가 생긴 대상과 상태를 조금 더 적어 주세요.</p><button type="button" class="secondary" id="refine-content">내용 보완하기</button></div>';
+    if (cat('other')) {
+      recommendations.push('other');
+      $('#classification').insertAdjacentHTML('beforeend','<label class="recommendation"><input type="radio" name="recommended-category" value="other"><span>해당하는 분류가 없어요 · 기타 생활불편</span></label>');
+    }
     document.querySelectorAll('input[name="recommended-category"]').forEach(input => input.onchange = () => { candidate = input.value; $('#submit-report').disabled = !recommendations.includes(candidate); });
     $('#refine-content')?.addEventListener('click', () => form.content.focus());
   };
+  if (edit) {
+    $('#main h1').textContent='내 제보 수정';
+    for (const key of ['district','dong','place_text','content']) form.elements[key].value=edit[key] || '';
+    locationPicker?.restore(edit.latitude,edit.longitude);
+    form.content.oninput(); candidate=edit.category_id; recommendations=[candidate];
+    $('#classification').textContent='현재 분류 · '+cat(candidate).name;
+    $('#submit-report').disabled=false; $('#submit-report').textContent='수정 저장';
+    const cancel=document.createElement('button'); cancel.type='button'; cancel.className='secondary'; cancel.textContent='수정 취소';
+    cancel.onclick=render; form.append(cancel);
+  }
   form.onsubmit = async event => {
     event.preventDefault(); const data = Object.fromEntries(new FormData(form));
     if (!recommendations.includes(candidate)) { $('#form-error').textContent = '추천된 분류 중 하나를 선택해 주세요.'; return; }
@@ -1393,22 +1422,181 @@ function renderForm() {
     Object.assign(payload, { place_text: data.place_text.trim() }, locationPicker?.read() || {latitude:null,longitude:null});
     const error = validateReport(payload, categories) || validateLocation(payload); if (error) { $('#form-error').textContent = error; return; }
     if (!demo && !user) { $('#auth').showModal(); return; }
+    if (edit && !locationPicker) { payload.latitude=edit.latitude; payload.longitude=edit.longitude; }
     const submit = $('#submit-report'); submit.disabled = true; $('#form-error').textContent = '';
     try {
       requireConnection(); let report;
-      if (demo) { report = { ...payload, id: crypto.randomUUID(), user_id: 'demo-user', created_at: new Date().toISOString(), status: 'open' }; saveLocal([report, ...localReports()]); }
-      else { const result = await client.from('reports').insert({ ...payload, user_id: user.id }).select().single(); if (result.error) throw result.error; report = result.data; }
-      showSuccess(report);
+      report=await persistReport(payload,edit,await photo.read());
+      if (!form.isConnected) return;
+      if (edit) { toast('수정했습니다.'); await render(); } else showSuccess(report);
     } catch (error) { $('#form-error').textContent = `등록하지 못했습니다. ${error.message}`; submit.disabled = false; }
   }; icons();
 }
 function showSuccess(report) {
   locationPicker?.destroy(); locationPicker = null;
   const category = cat(report.category_id);
-  $('#main').innerHTML = `<div class="section"><h1 class="success-title">${icon('circle-check')}${demo ? '체험 제보를 저장했습니다' : '제보가 등록되었습니다'}</h1><p class="lead">${demo ? '이 브라우저의 체험 게시판과 통계에 반영되었습니다.' : '게시판과 지역 통계에 반영되었습니다.'}</p><div class="classification"><p class="eyebrow">${escapeHTML(report.district)} · ${escapeHTML(report.dong)}</p><strong>${escapeHTML(category.main)} / ${escapeHTML(category.name)}</strong></div><div class="detail-body">${escapeHTML(report.content)}</div><div class="actions"><button class="primary" id="success-guide">${icon('book-open')}민원 안내 보기</button><button class="secondary" id="success-stats">${icon('chart-no-axes-combined')}우리 동네 현황</button><button class="secondary" id="again">${icon('plus')}새 제보</button></div><p class="notice">이 사이트에 등록한 제보는 행정기관에 자동으로 전달되지 않습니다.</p></div>`;
+  $('#main').innerHTML = `<div class="section"><h1 class="success-title">${icon('circle-check')}${demo ? '체험 제보를 저장했습니다' : '제보가 등록되었습니다'}</h1><p class="lead">${demo ? '이 브라우저의 체험 게시판과 통계에 반영되었습니다.' : '게시판과 지역 통계에 반영되었습니다.'}</p><div class="classification"><p class="eyebrow">${escapeHTML(report.district)} · ${escapeHTML(report.dong)}</p><strong>${escapeHTML(category.main)} / ${escapeHTML(category.name)}</strong></div>${photoMarkup(report)}<div class="detail-body">${escapeHTML(report.content)}</div><div class="actions"><button class="primary" id="success-guide">${icon('book-open')}민원 안내 보기</button><button class="secondary" id="success-stats">${icon('chart-no-axes-combined')}우리 동네 현황</button><button class="secondary" id="again">${icon('plus')}새 제보</button></div><p class="notice">이 사이트에 등록한 제보는 행정기관에 자동으로 전달되지 않습니다.</p></div>`;
   $('#success-guide').onclick = () => showDetail(report, true);
   $('#success-stats').onclick = () => { filters = { district: report.district, dong: report.dong, category: '' }; location.hash = 'stats'; };
-  $('#again').onclick = renderForm; icons();
+  $('#again').onclick = () => renderForm(); hydratePhotos(); icons();
+}
+function photoMarkup(report) {
+  if (demo && report.photo_data?.startsWith('data:image/jpeg;base64,')) return '<img class="report-photo" alt="제보자가 첨부한 현장 사진" src="'+escapeHTML(report.photo_data)+'">';
+  if (!report.photo_path) return '';
+  return user ? '<span data-photo="'+escapeHTML(report.photo_path)+'">사진 불러오는 중…</span>' : '<p class="meta">현장 사진은 로그인 후 볼 수 있어요.</p>';
+}
+async function hydratePhotos() {
+  const nodes=[...document.querySelectorAll('[data-photo]')];
+  if (!nodes.length || !client || !user) return;
+  const ordered=nodes.map(n=>n.dataset.photo), paths=[...new Set(ordered)];
+  nodes.forEach(n=>n.removeAttribute('data-photo'));
+  try {
+    const {data,error}=await client.storage.from('report-photos').createSignedUrls(paths,3600);
+    if (error) throw error;
+    nodes.forEach((n,i)=>{
+      const url=data.find(item=>item.path===ordered[i])?.signedUrl;
+      if (!url) { n.textContent='사진을 불러올 수 없어요.'; return; }
+      const img=new Image(); img.className='report-photo'; img.alt='제보자가 첨부한 현장 사진'; img.src=url; n.replaceWith(img);
+    });
+  } catch { nodes.forEach(n=>n.textContent='사진을 불러올 수 없어요.'); }
+}
+function attachPhotoField(form, edit) {
+  const field=document.createElement('div');
+  field.innerHTML='<label>현장 사진 (선택) <input type="file" accept="image/jpeg,image/png,image/webp" name="photo"></label><small>JPG, PNG, WebP 한 장 · 최대 10MB · 회원에게 공개</small><div class="photo-preview"></div><button type="button" class="secondary">사진 빼기</button>';
+  form.content.closest('label').before(field);
+  const input=field.querySelector('input'), preview=field.querySelector('.photo-preview'), remove=field.querySelector('button');
+  let selected=null, removed=false, version=0;
+  preview.innerHTML=edit ? photoMarkup(edit) : ''; remove.hidden=!preview.innerHTML; hydratePhotos();
+  function clear() { version++; input.value=''; preview.replaceChildren(); selected=null; removed=true; remove.hidden=true; }
+  remove.onclick=clear;
+  input.onchange=()=>{
+    const file=input.files[0]; if (!file) return;
+    const current=++version;
+    selected=(async()=>{
+      if (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size>10*1024*1024) throw Error('10MB 이하 JPG, PNG, WebP 사진을 선택해 주세요.');
+      const bitmap=await createImageBitmap(file);
+      const scale=Math.min(1,1400/Math.max(bitmap.width,bitmap.height));
+      const canvas=document.createElement('canvas'); canvas.width=Math.max(1,Math.round(bitmap.width*scale)); canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+      const ctx=canvas.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.drawImage(bitmap,0,0,canvas.width,canvas.height); bitmap.close();
+      const data=canvas.toDataURL('image/jpeg',0.8);
+      if(current===version){const img=new Image(); img.className='report-photo'; img.alt='첨부 사진 미리보기'; img.src=data; preview.replaceChildren(img); remove.hidden=false;}
+      return data;
+    })();
+    selected.catch(error=>{if(current===version){input.setCustomValidity(error.message); input.reportValidity(); remove.hidden=false;}});
+    input.setCustomValidity('');
+  };
+  remove.addEventListener('click',()=>input.setCustomValidity(''));
+  return {read:()=>selected || (removed ? null : undefined)};
+}
+async function discardPhoto(path) {
+  if (!path) return;
+  const {error}=await client.storage.from('report-photos').remove([path]);
+  if(error) toast('사진 파일 정리를 완료하지 못했어요.');
+}
+async function persistReport(payload, edit, photo) {
+  if(demo) {
+    const all=localReports();
+    const previous=edit && all.find(r=>r.id===edit.id && r.user_id==='demo-user');
+    if(edit&&!previous) throw Error('수정할 제보를 찾지 못했어요.');
+    const record={...(previous || {id:crypto.randomUUID(),user_id:'demo-user',created_at:new Date().toISOString(),status:'open'}),...payload};
+    if(photo!==undefined) record.photo_data=photo;
+    saveLocal(edit ? all.map(r=>r.id===edit.id ? record : r) : [record,...all]); return record;
+  }
+  let uploaded=null;
+  if(photo){
+    const path=user.id+'/'+crypto.randomUUID()+'.jpg';
+    const blob=await (await fetch(photo)).blob();
+    const {error}=await client.storage.from('report-photos').upload(path,blob,{contentType:'image/jpeg'});
+    if(error) throw error;
+    payload.photo_path=uploaded=path;
+  } else if(photo===null) payload.photo_path=null;
+  try {
+    const table=client.from('reports');
+    const request=edit ? table.update(payload).eq('id',edit.id).eq('user_id',user.id) : table.insert({...payload,user_id:user.id});
+    const {data,error}=await request.select().single();
+    if(error) throw error;
+    if(edit?.photo_path && photo!==undefined) await discardPhoto(edit.photo_path);
+    return data;
+  } catch(error) { await discardPhoto(uploaded); throw error; }
+}
+async function deleteReport(report) {
+  if(!confirm('이 제보와 첨부 사진을 삭제할까요? 삭제하면 되돌릴 수 없어요.')) return;
+  try {
+    if(demo) saveLocal(localReports().filter(r=>r.id!==report.id || r.user_id!=='demo-user'));
+    else {
+      const {error}=await client.from('reports').delete().eq('id',report.id).eq('user_id',user.id).select('id').single();
+      if(error) throw error;
+      await discardPhoto(report.photo_path);
+    }
+    toast('제보를 삭제했습니다.'); await render();
+  } catch(error){toast(error.message);}
+}
+async function bindFollowButton(report) {
+  const button=document.createElement('button'); button.type='button'; button.className='secondary'; button.disabled=true;
+  $('#toggle-guide').before(button);
+  let active=false;
+  function label(){button.textContent=active?'알림 받는 중 · 해제':'상태 변경 알림 받기';button.setAttribute('aria-pressed',String(active));}
+  try{
+    if(demo) active=!!localReports().find(r=>r.id===report.id)?.following;
+    else if(user){
+      const {data,error}=await client.from('report_follows').select('report_id').eq('report_id',report.id).eq('user_id',user.id).maybeSingle();
+      if(error) throw error; active=!!data;
+    }
+    label(); button.disabled=false;
+    button.onclick=async()=>{
+      if(!demo&&!user){$('#detail').close();$('#auth').showModal();return;}
+      button.disabled=true;
+      try{
+        if(demo) saveLocal(localReports().map(r=>r.id===report.id?{...r,following:!active}:r));
+        else {
+          const table=client.from('report_follows');
+          const {error}=await (active?table.delete().eq('report_id',report.id).eq('user_id',user.id):table.insert({report_id:report.id}));
+          if(error && error.code!=='23505') throw error;
+        }
+        active=!active; label();
+      }catch(error){toast(error.message);}finally{button.disabled=false;}
+    };
+  }catch{button.textContent='알림 연결을 확인해 주세요';}
+}
+async function renderAlerts(token){
+  $('#main').innerHTML=intro('관심 제보 알림','알림 받기를 선택한 제보의 상태 변경 내역입니다.')+'<div id="alert-list" class="section">불러오는 중…</div>';
+  const list=$('#alert-list');
+  if(!demo&&!user){list.innerHTML='<button class="primary">로그인</button>';list.firstChild.onclick=()=>$('#auth').showModal();return;}
+  try{
+    let alerts;
+    if(demo) alerts=localReports().flatMap(r=>(r.notices || []).map(n=>({...n,reports:r}))).sort((a,b)=>b.created_at.localeCompare(a.created_at));
+    else{
+      const {data,error}=await client.from('report_notifications').select('status,created_at,reports(*)').eq('user_id',user.id).order('id',{ascending:false}).limit(50);
+      if(error)throw error;alerts=data;
+    }
+    if(token!==viewToken)return;
+    list.textContent='';
+    if(!alerts.length)list.textContent='아직 상태 변경 알림이 없어요. 게시글 상세에서 알림 받기를 선택해 주세요.';
+    for(const notice of alerts){
+      const r=notice.reports;if(!r)continue;
+      const button=document.createElement('button');button.className='secondary alert-row';
+      button.textContent=[date(notice.created_at),r.district,r.dong,notice.status==='resolved'?'해결 확인':'미해결로 변경',r.content.slice(0,60)].join(' · ');
+      button.onclick=()=>showDetail(r);list.append(button);
+    }
+  }catch(error){list.textContent='알림을 불러올 수 없어요. '+error.message;}
+}
+let lastNoticeId = null, noticeOwner = null, checkingNotices = false;
+async function checkNewNotices() {
+  if (document.hidden || !connected || !user || checkingNotices) return;
+  const viewer = user.id;
+  if (noticeOwner !== viewer) { noticeOwner = viewer; lastNoticeId = null; }
+  checkingNotices = true;
+  try {
+    const { data, error } = await client.from('report_notifications').select('id')
+      .eq('user_id', viewer).order('id', { ascending: false }).limit(1);
+    if (error || user?.id !== viewer) return;
+    const newest = Number(data[0]?.id || 0);
+    if (lastNoticeId !== null && newest > lastNoticeId) {
+      if (pageName() === 'alerts') await render();
+      else toast('관심 제보의 상태가 바뀌었어요. 관심 제보 알림에서 확인하세요.');
+    }
+    lastNoticeId = newest;
+  } finally { checkingNotices = false; }
 }
 function officialLinksMarkup(report) {
   return `<section class="official-resources"><h3>지역·문제별 공식 안내</h3><p class="meta">${escapeHTML(report.district)} · ${escapeHTML(cat(report.category_id)?.name || '')}</p><ul class="official-list">${officialLinks(report).map(link => `<li><span class="tag">${escapeHTML(link.kind)}</span><a href="${escapeHTML(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHTML(link.title)}${icon('external-link')}</a><p>${escapeHTML(link.description)}</p></li>`).join('')}</ul><p class="meta">공식 메뉴·자료 확인: ${OFFICIAL_LINKS_CHECKED}</p><p class="notice">제보 내용과 위치는 외부 기관에 자동 전송되지 않습니다. 실제 신고는 공식 사이트에서 별도로 작성해야 하며 본인인증이 필요할 수 있습니다. 링크가 열리지 않으면 아래 국민신문고에서 발생 지역을 지정해 주세요.</p></section>`;
@@ -1420,13 +1608,14 @@ function guideMarkup(category, report) {
 function showDetail(report, showGuide = false) {
   disposeDetailMap?.(); disposeDetailMap = null;
   const category = cat(report.category_id);
-  $('#detail-content').innerHTML = `<div class="dialog-head"><h2>${escapeHTML(category.name)}</h2><button class="icon" data-close="detail" aria-label="닫기">${icon('x')}</button></div><div class="meta"><span>${escapeHTML(report.district)} · ${escapeHTML(report.dong)}</span><span>${date(report.created_at)}</span></div><div class="detail-body">${escapeHTML(report.content)}</div><button class="secondary" id="toggle-guide" aria-expanded="${showGuide}">${icon('book-open')}민원 안내 ${showGuide ? '접기' : '보기'}</button><div id="guide-content" ${showGuide ? '' : 'hidden'}>${guideMarkup(category, report)}</div>`;
+  $('#detail-content').innerHTML = `<div class="dialog-head"><h2>${escapeHTML(category.name)}</h2><button class="icon" data-close="detail" aria-label="닫기">${icon('x')}</button></div><div class="meta"><span>${escapeHTML(report.district)} · ${escapeHTML(report.dong)}</span><span>${date(report.created_at)}</span></div>${photoMarkup(report)}<div class="detail-body">${escapeHTML(report.content)}</div><button class="secondary" id="toggle-guide" aria-expanded="${showGuide}">${icon('book-open')}민원 안내 ${showGuide ? '접기' : '보기'}</button><div id="guide-content" ${showGuide ? '' : 'hidden'}>${guideMarkup(category, report)}</div>`;
   $('#toggle-guide').onclick = event => { const show = $('#guide-content').hidden; $('#guide-content').hidden = !show; event.currentTarget.setAttribute('aria-expanded', String(show)); event.currentTarget.innerHTML = `${icon('book-open')}민원 안내 ${show ? '접기' : '보기'}`; icons(); };
   const locationSection = document.createElement('section'); locationSection.className = 'location-detail';
   const hasLocation = validCoordinates(report.latitude, report.longitude);
   locationSection.innerHTML = `<h3>발생 장소</h3><p>${escapeHTML(report.place_text || '상세 장소 미입력')}</p>${hasLocation ? `<div id="detail-map" class="map-surface" role="region" aria-label="제보 발생 위치 지도"></div><p class="location-note">작성자가 지정한 위치 · ${report.latitude.toFixed(6)}, ${report.longitude.toFixed(6)}</p>` : '<p class="meta">이 제보에는 지도 위치가 등록되지 않았습니다.</p>'}`;
   $('#detail-content').querySelector('.detail-body').after(locationSection);
   if (!$('#detail').open) $('#detail').showModal();
+  bindFollowButton(report); hydratePhotos();
   if (hasLocation) { try { disposeDetailMap = showLocationMap($('#detail-map'), report); } catch (error) { $('#detail-map').textContent = error.message; } }
   icons();
 }
@@ -1435,7 +1624,7 @@ async function changeStatus(report, button) {
   button.disabled = true;
   const status = report.status === 'resolved' ? 'open' : 'resolved';
   try {
-    if (demo) saveLocal(localReports().map(r => r.id === report.id && r.user_id === 'demo-user' ? { ...r, status } : r));
+    if (demo) saveLocal(localReports().map(r => r.id === report.id && r.user_id === 'demo-user' ? { ...r, status, notices:r.following ? [{status,created_at:new Date().toISOString()},...(r.notices || [])] : r.notices } : r));
     else { requireConnection(); const result = await client.from('reports').update({ status }).eq('id', report.id).eq('user_id', user.id).select('id').single(); if (result.error) throw result.error; }
     toast('해결 여부를 변경했습니다.'); await render();
   } catch (error) { toast(error.message); button.disabled = false; }
@@ -1596,7 +1785,11 @@ $('#resend').onclick = async () => {
 $('#auth').addEventListener('close', () => { $('#auth-form').password.value = ''; $('#auth-form').confirm.value = ''; });
 document.addEventListener('click', event => { const close = event.target.closest('[data-close]'); if (close) document.getElementById(close.dataset.close).close(); });
 window.addEventListener('hashchange', () => { page = 0; render(); });
-init();
+init().then(checkNewNotices);
+if (!demo) {
+  setInterval(checkNewNotices, 30000);
+  document.addEventListener('visibilitychange', checkNewNotices);
+}
 
 </script></body>
 </html>

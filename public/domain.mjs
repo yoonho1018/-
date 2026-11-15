@@ -28,7 +28,7 @@ export const CATEGORIES = [
   { id: 'accessibility', main: '교통·도로', name: '이동약자 통행 장애', keywords: ['휠체어', '유모차', '경사로', '보도 턱', '높은 턱', '턱이 높', '휠체어 진입', '장애인 통행', '시각장애인', '이동약자', '경사로가 막', '점자블록을 막', '점자블록 위', '휠체어가 못', '유모차가 못', '보행약자'], extra: '점자블록, 경사로, 보도 턱 등 어떤 시설에서 통행이 어려운지 기록해 주세요. 이용자의 얼굴이나 장애 관련 개인정보는 공개하지 마세요.' }
 ].map(category => ({ ...category, keywords: KEYWORDS[category.id] || category.keywords }));
 export function classify(text, categories = CATEGORIES) {
-  return rankCategories(text, categories);
+  return rankCategories(text, categories.filter(c => c.id !== 'other'));
 }
 export function validateReport({ content, district, dong, category_id }, categories = CATEGORIES) {
   if (!DISTRICTS.includes(district)) return '발생한 구를 선택해 주세요.';
