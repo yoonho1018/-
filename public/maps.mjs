@@ -1,4 +1,5 @@
 import { MAP_CENTER, MAP_BOUNDS, DISTRICT_CENTERS, validCoordinates } from './geography.mjs';
+import { DONG_CENTERS } from './dong-centers.mjs';
 
 const mapEscape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 function baseMap(element, center = MAP_CENTER, zoom = 12) {
@@ -17,10 +18,14 @@ function baseMap(element, center = MAP_CENTER, zoom = 12) {
   }
   return { map, destroy: () => { map.stop(); map.remove(); note.remove(); } };
 }
-export function createLocationPicker(element, output) {
+export function createLocationPicker(element, output, controls = null) {
   const base = baseMap(element), map = base.map;
   let point = null, marker = null;
+  let requestVersion = 0, moveTimer = null, destroyed = false;
+  const events = new AbortController();
   const choose = latlng => {
+    clearTimeout(moveTimer);
+    requestVersion++;
     if (!validCoordinates(latlng.lat, latlng.lng)) { output.textContent = '대전 주변 범위 안에서 선택해 주세요.'; return; }
     point = { latitude: Number(latlng.lat.toFixed(6)), longitude: Number(latlng.lng.toFixed(6)) };
     if (marker) marker.setLatLng(latlng);
@@ -28,13 +33,63 @@ export function createLocationPicker(element, output) {
     output.textContent = `선택 위치 · ${point.latitude.toFixed(6)}, ${point.longitude.toFixed(6)}`;
   };
   map.on('click', e => choose(e.latlng));
+  const clear = () => {
+    requestVersion++; point = null;
+    if (marker) { marker.remove(); marker = null; }
+    output.textContent = '위치 미선택';
+  };
+  if (controls) {
+    const { district, dong, currentButton, notice } = controls;
+    function moveToDong() {
+      if (destroyed) return;
+      const name = dong.value.trim().replace(/\s+/g,'');
+      if (!name) { notice.textContent = '동 이름을 입력하면 지도가 이동합니다.'; return; }
+      if (!district.value) { notice.textContent = '먼저 구를 선택해 주세요.'; return; }
+      const center = DONG_CENTERS[district.value]?.[name];
+      if (!center) { notice.textContent = '해당 구에서 동을 찾지 못했어요. 동 이름을 확인하거나 지도를 직접 이동해 주세요.'; return; }
+      map.setView(center,15,{animate:false});
+      notice.textContent = district.value+' '+name+' 주변으로 이동했어요. 실제 발생 지점을 지도에서 찍어 주세요.';
+    }
+    dong.addEventListener('input', () => {
+      clear(); clearTimeout(moveTimer);
+      moveTimer = setTimeout(moveToDong,450);
+    }, {signal:events.signal});
+    district.addEventListener('change', () => {
+      clear(); clearTimeout(moveTimer);
+      if (DISTRICT_CENTERS[district.value]) map.setView(DISTRICT_CENTERS[district.value],14,{animate:false});
+      moveToDong();
+    }, {signal:events.signal});
+    currentButton.addEventListener('click', () => {
+      clearTimeout(moveTimer);
+      if (!navigator.geolocation) { notice.textContent = '이 브라우저에서는 현재 위치를 사용할 수 없어요. 지도에서 선택해 주세요.'; return; }
+      const version = ++requestVersion;
+      currentButton.disabled = true; notice.textContent = '현재 위치를 확인하고 있어요…';
+      navigator.geolocation.getCurrentPosition(position => {
+        if (destroyed) return;
+        currentButton.disabled = false;
+        if (version !== requestVersion) return;
+        const {latitude,longitude,accuracy} = position.coords;
+        if (!validCoordinates(latitude,longitude)) { notice.textContent = '현재 위치가 대전 주변 지도 범위 밖에 있어요. 제보할 장소를 지도에서 선택해 주세요.'; return; }
+        map.setView([latitude,longitude],17,{animate:false});
+        choose({lat:latitude,lng:longitude});
+        notice.textContent = '현재 위치를 선택했어요'+(Number.isFinite(accuracy)?' (오차 약 '+Math.round(accuracy)+'m)':'')+'. 발생 장소가 맞는지 확인하고 구·동도 입력해 주세요.';
+      }, error => {
+        if (destroyed) return;
+        currentButton.disabled = false;
+        if (version !== requestVersion) return;
+        notice.textContent = error.code === 1 ? '위치 권한이 꺼져 있어요. 브라우저에서 허용한 뒤 다시 누르거나 지도에서 선택해 주세요.'
+          : error.code === 3 ? '위치 확인 시간이 초과됐어요. 다시 누르거나 지도에서 선택해 주세요.'
+          : '현재 위치를 찾지 못했어요. 기기의 위치 설정을 확인하거나 지도에서 선택해 주세요.';
+      }, {enableHighAccuracy:true,timeout:10000,maximumAge:0});
+    }, {signal:events.signal});
+  }
   return {
     read: () => point || {latitude: null, longitude: null},
     restore: (lat,lng) => { if (validCoordinates(lat,lng)) { map.setView([lat,lng],16); choose({lat,lng}); } },
     center: () => choose(map.getCenter()),
-    clear: () => { point = null; if (marker) { marker.remove(); marker = null; } output.textContent = '위치 미선택'; },
+    clear,
     district: name => { if (DISTRICT_CENTERS[name]) map.setView(DISTRICT_CENTERS[name], 14, {animate:false}); },
-    destroy: base.destroy
+    destroy: () => { destroyed=true; requestVersion++; clearTimeout(moveTimer); events.abort(); base.destroy(); }
   };
 }
 export function showLocationMap(element, report) {

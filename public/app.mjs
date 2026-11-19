@@ -227,14 +227,18 @@ function renderForm(edit = null) {
   const form = $('#report-form');
   const photo = attachPhotoField(form,edit);
   const locationFields = document.createElement('div'); locationFields.className = 'location-fields';
-  locationFields.innerHTML = `<label>상세 장소 (선택)<input name="place_text" maxlength="160" placeholder="예: 신성동 주민센터 정문 맞은편 보행로"></label><h3>발생 위치 (선택)</h3><p class="location-note">선택한 위치와 장소 설명은 게시글에 공개됩니다. 집 내부나 개인 주소 대신 문제가 있는 공공장소를 표시해 주세요. 구·동은 직접 확인해 입력해 주세요.</p><div id="location-picker" class="map-surface" role="region" aria-label="제보 위치 선택 지도"></div><div class="map-toolbar"><p id="location-output" role="status">위치 미선택</p><div class="map-actions"><button type="button" id="pick-center" class="secondary">${icon('map-pin')}중앙에 위치 지정</button><button type="button" id="clear-location" class="icon secondary" aria-label="선택 위치 지우기" title="선택 위치 지우기">${icon('x')}</button></div></div>`;
+  locationFields.innerHTML = `<label>상세 장소 (선택)<input name="place_text" maxlength="160" placeholder="예: 신성동 주민센터 정문 맞은편 보행로"></label><h3>발생 위치 (선택)</h3><p class="location-note">선택한 위치와 장소 설명은 게시글에 공개됩니다. 집 내부나 개인 주소 대신 문제가 있는 공공장소를 표시해 주세요. 구·동은 직접 확인해 입력해 주세요.</p><div id="location-picker" class="map-surface" role="region" aria-label="제보 위치 선택 지도"></div><div class="map-toolbar"><p id="location-output" role="status">위치 미선택</p><div class="map-actions"><button type="button" id="current-location" class="secondary">${icon('locate-fixed')}현재 위치</button><button type="button" id="pick-center" class="secondary">${icon('map-pin')}중앙에 위치 지정</button><button type="button" id="clear-location" class="icon secondary" aria-label="선택 위치 지우기" title="선택 위치 지우기">${icon('x')}</button></div></div>`;
+  locationFields.insertAdjacentHTML('beforeend', '<p id="location-search-note" class="location-note" role="status">동 이름을 입력하면 지도가 이동합니다.</p><a href="/location-data.txt" target="_blank" rel="noopener" class="meta">동 위치 자료 출처</a>');
   form.querySelector('.section').append(locationFields);
   try {
-    locationPicker = createLocationPicker($('#location-picker'), $('#location-output'));
+    locationPicker = createLocationPicker($('#location-picker'), $('#location-output'), {
+      district: form.district, dong: form.dong,
+      currentButton: $('#current-location'), notice: $('#location-search-note')
+    });
     $('#pick-center').onclick = () => locationPicker.center();
     $('#clear-location').onclick = () => locationPicker.clear();
-    form.district.addEventListener('change', () => { locationPicker.clear(); locationPicker.district(form.district.value); });
-  } catch (error) { $('#location-output').textContent = error.message; $('#pick-center').disabled = true; $('#clear-location').disabled = true; }
+
+  } catch (error) { $('#location-output').textContent = error.message; $('#current-location').disabled = true; $('#pick-center').disabled = true; $('#clear-location').disabled = true; }
   form.content.oninput = () => { $('#length').textContent = `${form.content.value.length} / 1,000`; candidate = null; recommendations = []; $('#classification').innerHTML = ''; $('#submit-report').disabled = true; };
   $('#analyze').onclick = () => {
     if (!form.reportValidity()) return;
