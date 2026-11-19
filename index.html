@@ -1339,7 +1339,7 @@ async function render() {
 }
 function rowMarkup(r, mine) {
   const category = cat(r.category_id);
-  return `<article class="report-row"><div><div class="meta"><span>${escapeHTML(r.district)} · ${escapeHTML(r.dong)}</span><span>${date(r.created_at)}</span></div>${photoMarkup(r)}<p>${escapeHTML(r.content.length > 100 ? r.content.slice(0,100) + '…' : r.content)}</p><div class="meta"><span>${escapeHTML(category?.main)} / ${escapeHTML(category?.name)}</span><span class="tag ${r.status === 'resolved' ? 'resolved' : ''}">${r.status === 'resolved' ? '작성자 해결 확인' : '등록됨'}</span></div></div><div class="row-actions">${voteMarkup(r)}<button class="secondary" data-detail="${escapeHTML(r.id)}">상세·민원 안내${icon('arrow-up-right')}</button>${mine ? `<button class="icon secondary" data-status="${escapeHTML(r.id)}" title="${r.status === 'resolved' ? '미해결로 변경' : '해결 완료로 변경'}" aria-label="${r.status === 'resolved' ? '미해결로 변경' : '해결 완료로 변경'}">${icon(r.status === 'resolved' ? 'rotate-ccw' : 'check')}</button>` : ''}</div></article>`;
+  return `<article class="report-row"><div><div class="meta"><span>${escapeHTML(r.district)} · ${escapeHTML(r.dong)}</span><span>${date(r.created_at)}</span></div>${photoMarkup(r)}<p>${escapeHTML(r.content.length > 100 ? r.content.slice(0,100) + '…' : r.content)}</p><div class="meta"><span>${escapeHTML(category?.main)} / ${escapeHTML(category?.name)}</span><span class="tag ${r.status === 'resolved' ? 'resolved' : ''}">${r.status === 'resolved' ? '작성자 해결 확인' : '등록됨'}</span></div></div><div class="row-actions">${voteMarkup(r)}<button class="secondary" data-detail="${escapeHTML(r.id)}">상세·민원 안내${icon('arrow-up-right')}</button>${mine ? `<button class="secondary" data-status="${escapeHTML(r.id)}" title="${r.status === 'resolved' ? '미해결로 변경' : '해결 완료로 변경'}" aria-label="${r.status === 'resolved' ? '미해결로 변경' : '해결 완료로 변경'}">${icon(r.status === 'resolved' ? 'rotate-ccw' : 'check')}</button>` : ''}</div></article>`;
 }
 
 function voteMarkup(r) {
@@ -1376,6 +1376,7 @@ async function castVote(id, direction) {
 }
 
 function renderForm(edit = null) {
+  locationPicker?.destroy(); locationPicker = null;
   candidate = null; recommendations = [];
   $('#main').innerHTML = intro('작은 불편, 함께 남기는 변화', '우리 동네에서 발견한 문제를 기록해 주세요.') + `<div class="report-layout"><form id="report-form"><section class="section"><div class="section-title"><span class="step">1</span><h2>어디에서 발생했나요?</h2></div><p class="meta">대전광역시</p><div class="fields"><label>구<select name="district" required>${options(DISTRICTS, '', '구 선택')}</select></label><label>동<input name="dong" required maxlength="30" placeholder="예: 신성동"></label></div></section><section class="section"><div class="section-title"><span class="step">2</span><h2>어떤 불편을 발견했나요?</h2></div><label>문제 내용<textarea name="content" minlength="10" maxlength="1000" required placeholder="예: 집 앞 도로에 큰 구멍이 생겼어요. 차량이 지나갈 때 위험해 보여요."></textarea></label><div class="field-foot"><span>이름·연락처 등 개인정보는 적지 마세요.</span><span id="length">0 / 1,000</span></div><button type="button" id="analyze" class="secondary wide">${icon('scan-text')}분류 확인하기</button><div id="classification"></div><p id="form-error" class="form-error" role="alert"></p><button type="submit" id="submit-report" class="primary wide" disabled>${icon('send')}제보 등록하기</button></section></form><section class="support"><h3>분야별 동네기록</h3><ul class="support-list"><li>${icon('route')}<div>교통·도로<small>타슈·킥보드, 도로, 보행 장애</small></div></li><li>${icon('leaf')}<div>환경<small>쓰레기, 악취, 하수구</small></div></li><li>${icon('lamp-street')}<div>공공시설<small>가로등, 공원, 시설물</small></div></li><li>${icon('volume-2')}<div>생활<small>소음, 불법 광고물</small></div></li></ul><p class="notice">제보는 게시판에 공개됩니다. 공식 신고는 등록 후 민원 안내에서 별도로 진행해 주세요.</p></section></div>`;
   const form = $('#report-form');
@@ -1415,21 +1416,39 @@ function renderForm(edit = null) {
     const cancel=document.createElement('button'); cancel.type='button'; cancel.className='secondary'; cancel.textContent='수정 취소';
     cancel.onclick=render; form.append(cancel);
   }
+  let saving = false;
   form.onsubmit = async event => {
-    event.preventDefault(); const data = Object.fromEntries(new FormData(form));
+    event.preventDefault();
+    if (saving) return;
+    const data = Object.fromEntries(new FormData(form));
     if (!recommendations.includes(candidate)) { $('#form-error').textContent = '추천된 분류 중 하나를 선택해 주세요.'; return; }
     const payload = { content: data.content.trim(), district: data.district, dong: data.dong.trim().replace(/\s+/g, ' '), category_id: candidate };
     Object.assign(payload, { place_text: data.place_text.trim() }, locationPicker?.read() || {latitude:null,longitude:null});
     const error = validateReport(payload, categories) || validateLocation(payload); if (error) { $('#form-error').textContent = error; return; }
     if (!demo && !user) { $('#auth').showModal(); return; }
     if (edit && !locationPicker) { payload.latitude=edit.latitude; payload.longitude=edit.longitude; }
-    const submit = $('#submit-report'); submit.disabled = true; $('#form-error').textContent = '';
+    const submit = $('#submit-report'), message = $('#form-error');
+    const originalLabel = submit.innerHTML;
+    const controls = [...form.elements].map(element => [element, element.disabled]);
+    saving = true;
+    controls.forEach(([element]) => { element.disabled = true; });
+    submit.textContent = '사진과 제보 저장 중…';
+    form.setAttribute('aria-busy','true'); message.textContent = '';
     try {
       requireConnection(); let report;
       report=await persistReport(payload,edit,await photo.read());
       if (!form.isConnected) return;
       if (edit) { toast('수정했습니다.'); await render(); } else showSuccess(report);
-    } catch (error) { $('#form-error').textContent = `등록하지 못했습니다. ${error.message}`; submit.disabled = false; }
+    } catch (error) {
+      if (form.isConnected) message.textContent = `저장하지 못했습니다. ${error.message}`;
+    } finally {
+      saving = false;
+      if (form.isConnected) {
+        controls.forEach(([element, disabled]) => { element.disabled = disabled; });
+        submit.innerHTML = originalLabel;
+        form.removeAttribute('aria-busy');
+      }
+    }
   }; icons();
 }
 function showSuccess(report) {
@@ -1448,17 +1467,34 @@ function photoMarkup(report) {
 async function hydratePhotos() {
   const nodes=[...document.querySelectorAll('[data-photo]')];
   if (!nodes.length || !client || !user) return;
+  const viewer = user.id;
   const ordered=nodes.map(n=>n.dataset.photo), paths=[...new Set(ordered)];
   nodes.forEach(n=>n.removeAttribute('data-photo'));
+  function retry(node, path) {
+    if (!node.isConnected) return;
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'secondary';
+    button.textContent = '사진 다시 불러오기';
+    button.onclick = () => {
+      const placeholder = document.createElement('span');
+      placeholder.dataset.photo = path; placeholder.textContent = '사진 불러오는 중…';
+      button.replaceWith(placeholder); hydratePhotos();
+    };
+    node.replaceWith(button);
+  }
   try {
     const {data,error}=await client.storage.from('report-photos').createSignedUrls(paths,3600);
     if (error) throw error;
     nodes.forEach((n,i)=>{
+      if (!n.isConnected) return;
+      if (user?.id !== viewer) { n.textContent = '사진을 보려면 다시 로그인해 주세요.'; return; }
       const url=data.find(item=>item.path===ordered[i])?.signedUrl;
-      if (!url) { n.textContent='사진을 불러올 수 없어요.'; return; }
-      const img=new Image(); img.className='report-photo'; img.alt='제보자가 첨부한 현장 사진'; img.src=url; n.replaceWith(img);
+      if (!url) { retry(n,ordered[i]); return; }
+      const img=new Image(); img.className='report-photo'; img.alt='제보자가 첨부한 현장 사진';
+      img.onerror = () => retry(img,ordered[i]);
+      img.src=url; n.replaceWith(img);
     });
-  } catch { nodes.forEach(n=>n.textContent='사진을 불러올 수 없어요.'); }
+  } catch { nodes.forEach((n,i)=>retry(n,ordered[i])); }
 }
 function attachPhotoField(form, edit) {
   const field=document.createElement('div');
